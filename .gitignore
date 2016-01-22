@@ -29,3 +29,5 @@
 
 *.tar.gz
 */bin
+*.jar
+/doc
