@@ -120,7 +120,7 @@ int main(int argc, char * argv[]) {
 		exit(EXIT_FAILURE);
 	}
 
-	fprintf(wheretoprint, "%s", buf);
+//	fprintf(wheretoprint, "%s", buf);
 
     /* first read loop -- read headers */
 	bptr = buf;
