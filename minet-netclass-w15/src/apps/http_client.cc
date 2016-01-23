@@ -1,7 +1,6 @@
 #include "minet_socket.h"
 #include <stdlib.h>
 #include <ctype.h>
-#include <string>
 
 #define BUFSIZE 1024
 
@@ -9,105 +8,153 @@ int write_n_bytes(int fd, char * buf, int count);
 
 int main(int argc, char * argv[]) {
     char * server_name = NULL;
-    int server_port = 0;
+    //int server_port = 0;
+    char * server_port = NULL;
     char * server_path = NULL;
 
     int sock = 0;
     int rc = -1;
     int datalen = 0;
     bool ok = true;
-    struct sockaddr_in sa;
+    //struct sockaddr_in sa;
     FILE * wheretoprint = stdout;
-    struct hostent * site = NULL;
+    //struct hostent * site = NULL;
+    struct addrinfo hints;
+	struct addrinfo * servinfo;
     char * req = NULL;
 
     char buf[BUFSIZE + 1];
     char * bptr = NULL;
     char * bptr2 = NULL;
     char * endheaders = NULL;
-
+   
     struct timeval timeout;
     fd_set set;
 
     /*parse args */
     if (argc != 5) {
-	    fprintf(stderr, "usage: http_client k|u server port path\n");
-    	exit(-1);
+	fprintf(stderr, "usage: http_client k|u server port path\n");
+	exit(-1);
     }
 
     server_name = argv[2];
-    server_port = atoi(argv[3]);
+    //server_port = atoi(argv[3]);
+    server_port = argv[3];
     server_path = argv[4];
 
+
+
     /* initialize minet */
-    if (toupper(*(argv[1])) == 'K') {
-	    minet_init(MINET_KERNEL);
-    } else if (toupper(*(argv[1])) == 'U') {
-	    minet_init(MINET_USER);
+    if (toupper(*(argv[1])) == 'K') { 
+	minet_init(MINET_KERNEL);
+    } else if (toupper(*(argv[1])) == 'U') { 
+	minet_init(MINET_USER);
     } else {
-	    fprintf(stderr, "First argument must be k or u\n");
-	    exit(-1);
+	fprintf(stderr, "First argument must be k or u\n");
+	exit(-1);
     }
 
-    // TODO use minet_perror() minet_error()
+	/* setup addrinfo struct*/
+	//site = gethostbyname(server_name);
+	memset(&hints, 0, sizeof(hints));
+	hints.ai_family = AF_INET;
+	hints.ai_socktype = SOCK_STREAM;
+	if(getaddrinfo(server_name, server_port, &hints, &servinfo) != 0) {
+		perror("clinet getaddrinfo");
+		exit(EXIT_FAILURE);
+	}
+
     /* create socket */
-    sock = minet_socket(SOCK_STREAM);
-    if (sock == -1) {
-        minet_perror("failed to create a socket\n");
-        exit(-1);
-    }
-    // Do DNS lookup
-    /* Hint: use gethostbyname() */
-    site = gethostbyname(server_name);
-    if (site == NULL) {
-        minet_perror("unable to resolve host name\n");
-        exit(-1);
-    }
+	sock = minet_socket(SOCK_STREAM); 
+	if(sock < 0) {
+		minet_perror("client socket");
+		exit(EXIT_FAILURE);
+	}
+
     /* set address */
-    sa.sin_family = AF_INET;
-    sa.sin_addr = *(struct in_addr *) site->h_addr;
-    sa.sin_port = htons(server_port);
+
     /* connect socket */
-    if (minet_connect(sock, &sa) == -1) {
-        minet_perror("failed to make a onnection\n");
-        exit(-1);
-    }
-
+	if(minet_connect(sock, (sockaddr_in *)servinfo->ai_addr) < 0) {
+		minet_close(sock);
+		minet_perror("clinet connect");
+		exit(EXIT_FAILURE);
+	}
+    
     /* send request */
-    const std::string CRLF("\r\n");
-    std::string requestMsg = "hello tcp";
-    std::string requestLine;
-    std::string requestHeaders;
-    std::string body;
-    requestMsg
-        .append(requestLine)
-        .append(requestHeaders)
-        .append(CRLF)
-        .append(body);
-    char requestMsg_array[BUFSIZE];
-    strcpy(requestMsg_array, requestMsg.c_str());
-    write_n_bytes(sock, requestMsg_array, requestMsg.size());
-
-    minet_close(sock);
-
-    return 0;
+	req = (char *)malloc(strlen(server_path) + 15);
+	sprintf(req, "GET %s HTTP/1.1\n\n", server_path);
+	if(write_n_bytes(sock, req, strlen(req)) < 0) {
+		free(req);
+		minet_perror("clinet send 1");
+		exit(EXIT_FAILURE);
+	}
+	free(req);
 
     /* wait till socket can be read */
-    /* Hint: use select(), and ignore timeout for now. */
+	timeout.tv_sec = 2;
+	timeout.tv_usec = 500000;
+	FD_ZERO(&set);
+	FD_SET(sock, &set);
 
+	if(minet_select(sock + 1, &set, NULL, NULL, &timeout) < 0) {
+		minet_perror("clinet select");
+		exit(EXIT_FAILURE);
+	}
+	if(FD_ISSET(sock, &set)) {
+		if(minet_read(sock, buf, BUFSIZE) < 0) {
+			minet_perror("client reveive 1");
+			exit(EXIT_FAILURE);
+		}
+	} else {
+		fprintf(stderr, "Connect to remote sever failed\n");
+		exit(EXIT_FAILURE);
+	}	
+    
+	fprintf(wheretoprint, "%s", buf);
 
     /* first read loop -- read headers */
-
-    /* examine return code */
+	bptr = buf;
     //Skip "HTTP/1.0"
-    //remove the '\0'
-    // Normal reply has return code 200
+	while(*bptr != ' ')
+		++bptr;
+	++bptr;
+	
+	char code[4];
+	strncpy(code, bptr, 3);
+	code[3] = '\0';
+	rc = atoi(code);
+
+	fprintf(wheretoprint, "HTTP response code: %d\n\n", rc);
+	if(rc != 200) {
+		wheretoprint = stderr;
+		ok = false;
+	}
+
+	bptr2 = bptr + 2;
+	while(!(*bptr == '\n' && *bptr2 == '\n')) {
+		if(*(bptr2 + 1) == '\0')
+			break;
+		++bptr;
+		++bptr2;
+	}
+	++bptr2;
 
     /* print first part of response */
+	fprintf(wheretoprint, "HTTP response body:\n");
+	fprintf(wheretoprint, "%s", bptr2);
 
     /* second read loop -- print out the rest of the response */
-
+	while((datalen = minet_read(sock, buf, BUFSIZE)) > 0) {
+		buf[datalen] = '\0';
+		fprintf(wheretoprint, "%s", buf);
+	}
+    
     /*close socket and deinitialize */
+	freeaddrinfo(servinfo);
+	if(minet_deinit() < 0) {
+		minet_perror("deinit");
+		exit(EXIT_FAILURE);
+	}
 
     if (ok) {
 	return 0;
@@ -123,7 +170,7 @@ int write_n_bytes(int fd, char * buf, int count) {
     while ((rc = minet_write(fd, buf + totalwritten, count - totalwritten)) > 0) {
 	totalwritten += rc;
     }
-
+    
     if (rc < 0) {
 	return -1;
     } else {
