@@ -1,6 +1,9 @@
 #include "minet_socket.h"
 #include <stdlib.h>
 #include <ctype.h>
+#include <string>
+
+using namespace std;
 
 #define BUFSIZE 1024
 
@@ -27,14 +30,14 @@ int main(int argc, char * argv[]) {
     char * bptr = NULL;
     char * bptr2 = NULL;
     char * endheaders = NULL;
-   
+
     struct timeval timeout;
     fd_set set;
 
     /*parse args */
     if (argc != 5) {
-	fprintf(stderr, "usage: http_client k|u server port path\n");
-	exit(-1);
+	    fprintf(stderr, "usage: http_client k|u server port path\n");
+	    exit(-1);
     }
 
     server_name = argv[2];
@@ -45,13 +48,13 @@ int main(int argc, char * argv[]) {
 
 
     /* initialize minet */
-    if (toupper(*(argv[1])) == 'K') { 
-	minet_init(MINET_KERNEL);
-    } else if (toupper(*(argv[1])) == 'U') { 
-	minet_init(MINET_USER);
+    if (toupper(*(argv[1])) == 'K') {
+	    minet_init(MINET_KERNEL);
+    } else if (toupper(*(argv[1])) == 'U') {
+	    minet_init(MINET_USER);
     } else {
-	fprintf(stderr, "First argument must be k or u\n");
-	exit(-1);
+	    fprintf(stderr, "First argument must be k or u\n");
+	    exit(-1);
     }
 
 	/* setup addrinfo struct*/
@@ -59,14 +62,14 @@ int main(int argc, char * argv[]) {
 	memset(&hints, 0, sizeof(hints));
 	hints.ai_family = AF_INET;
 	hints.ai_socktype = SOCK_STREAM;
-	if(getaddrinfo(server_name, server_port, &hints, &servinfo) != 0) {
-		perror("clinet getaddrinfo");
+	if (getaddrinfo(server_name, server_port, &hints, &servinfo) != 0) {
+		minet_perror("clinet getaddrinfo");
 		exit(EXIT_FAILURE);
 	}
 
     /* create socket */
-	sock = minet_socket(SOCK_STREAM); 
-	if(sock < 0) {
+	sock = minet_socket(SOCK_STREAM);
+	if (sock < 0) {
 		minet_perror("client socket");
 		exit(EXIT_FAILURE);
 	}
@@ -74,21 +77,27 @@ int main(int argc, char * argv[]) {
     /* set address */
 
     /* connect socket */
-	if(minet_connect(sock, (sockaddr_in *)servinfo->ai_addr) < 0) {
+	if (minet_connect(sock, (sockaddr_in *)servinfo->ai_addr) < 0) {
 		minet_close(sock);
 		minet_perror("clinet connect");
 		exit(EXIT_FAILURE);
 	}
-    
+
+    const string CRLF = "\r\n";
     /* send request */
-	req = (char *)malloc(strlen(server_path) + 15);
-	sprintf(req, "GET %s HTTP/1.1\n\n", server_path);
-	if(write_n_bytes(sock, req, strlen(req)) < 0) {
-		free(req);
+    string method("GET");
+    string url(server_path);
+    string version("HTTP/1.0");
+    string reqStr = method + " " + url + " " + version + CRLF + CRLF;
+
+    req = new char[reqStr.length()];
+	sprintf(req, reqStr.c_str());
+	if (write_n_bytes(sock, req, strlen(req)) < 0) {
+        delete req;
 		minet_perror("clinet send 1");
 		exit(EXIT_FAILURE);
 	}
-	free(req);
+    delete req;
 
     /* wait till socket can be read */
 	timeout.tv_sec = 2;
@@ -96,29 +105,31 @@ int main(int argc, char * argv[]) {
 	FD_ZERO(&set);
 	FD_SET(sock, &set);
 
-	if(minet_select(sock + 1, &set, NULL, NULL, &timeout) < 0) {
-		minet_perror("clinet select");
+	if (minet_select(sock + 1, &set, NULL, NULL, &timeout) < 0) {
+		minet_perror("clinet select timeout");
 		exit(EXIT_FAILURE);
 	}
+
 	if(FD_ISSET(sock, &set)) {
 		if(minet_read(sock, buf, BUFSIZE) < 0) {
-			minet_perror("client reveive 1");
+			minet_perror("client received 1");
 			exit(EXIT_FAILURE);
 		}
 	} else {
-		fprintf(stderr, "Connect to remote sever failed\n");
+		minet_perror("Connect to remote sever failed");
 		exit(EXIT_FAILURE);
-	}	
-    
+	}
+
 	fprintf(wheretoprint, "%s", buf);
 
     /* first read loop -- read headers */
 	bptr = buf;
     //Skip "HTTP/1.0"
-	while(*bptr != ' ')
+	while(*bptr != ' ') {
 		++bptr;
+    }
 	++bptr;
-	
+
 	char code[4];
 	strncpy(code, bptr, 3);
 	code[3] = '\0';
@@ -148,7 +159,7 @@ int main(int argc, char * argv[]) {
 		buf[datalen] = '\0';
 		fprintf(wheretoprint, "%s", buf);
 	}
-    
+
     /*close socket and deinitialize */
 	freeaddrinfo(servinfo);
 	if(minet_deinit() < 0) {
@@ -170,7 +181,7 @@ int write_n_bytes(int fd, char * buf, int count) {
     while ((rc = minet_write(fd, buf + totalwritten, count - totalwritten)) > 0) {
 	totalwritten += rc;
     }
-    
+
     if (rc < 0) {
 	return -1;
     } else {

@@ -34,4 +34,4 @@
 *.tar.gz
 */bin
 *.jar
-/doc
+*/docs
