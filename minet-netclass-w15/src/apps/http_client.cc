@@ -37,7 +37,7 @@ int main(int argc, char * argv[]) {
     /*parse args */
     if (argc != 5) {
 	    fprintf(stderr, "usage: http_client k|u server port path\n");
-	    exit(-1);
+	    exit(EXIT_FAILURE);
     }
 
     server_name = argv[2];
@@ -53,8 +53,8 @@ int main(int argc, char * argv[]) {
     } else if (toupper(*(argv[1])) == 'U') {
 	    minet_init(MINET_USER);
     } else {
-	    fprintf(stderr, "First argument must be k or u\n");
-	    exit(-1);
+	    fprintf(stderr, "first argument must be k or u\n");
+	    exit(EXIT_FAILURE);
     }
 
 	/* setup addrinfo struct*/
@@ -63,14 +63,14 @@ int main(int argc, char * argv[]) {
 	hints.ai_family = AF_INET;
 	hints.ai_socktype = SOCK_STREAM;
 	if (getaddrinfo(server_name, server_port, &hints, &servinfo) != 0) {
-		minet_perror("clinet getaddrinfo");
+		minet_perror("clinet getaddrinfo\n");
 		exit(EXIT_FAILURE);
 	}
 
     /* create socket */
 	sock = minet_socket(SOCK_STREAM);
 	if (sock < 0) {
-		minet_perror("client socket");
+		minet_perror("client failed to create socket\n");
 		exit(EXIT_FAILURE);
 	}
 
@@ -79,7 +79,7 @@ int main(int argc, char * argv[]) {
     /* connect socket */
 	if (minet_connect(sock, (sockaddr_in *)servinfo->ai_addr) < 0) {
 		minet_close(sock);
-		minet_perror("clinet connect");
+		minet_perror("clinet failed to connect\n");
 		exit(EXIT_FAILURE);
 	}
 
@@ -94,29 +94,29 @@ int main(int argc, char * argv[]) {
 	sprintf(req, reqStr.c_str());
 	if (write_n_bytes(sock, req, strlen(req)) < 0) {
         delete req;
-		minet_perror("clinet send 1");
+		minet_perror("clinet send 1\n");
 		exit(EXIT_FAILURE);
 	}
     delete req;
 
     /* wait till socket can be read */
-	timeout.tv_sec = 2;
-	timeout.tv_usec = 500000;
+	timeout.tv_sec = 1;
+	timeout.tv_usec = 50;
 	FD_ZERO(&set);
 	FD_SET(sock, &set);
 
 	if (minet_select(sock + 1, &set, NULL, NULL, &timeout) < 0) {
-		minet_perror("clinet select timeout");
+		minet_perror("clinet select timeout\n");
 		exit(EXIT_FAILURE);
 	}
 
 	if(FD_ISSET(sock, &set)) {
 		if(minet_read(sock, buf, BUFSIZE) < 0) {
-			minet_perror("client received 1");
+			minet_perror("client received 1\n");
 			exit(EXIT_FAILURE);
 		}
 	} else {
-		minet_perror("Connect to remote sever failed");
+		minet_perror("connect to remote sever failed\n");
 		exit(EXIT_FAILURE);
 	}
 
@@ -163,7 +163,7 @@ int main(int argc, char * argv[]) {
     /*close socket and deinitialize */
 	freeaddrinfo(servinfo);
 	if(minet_deinit() < 0) {
-		minet_perror("deinit");
+		minet_perror("deinit\n");
 		exit(EXIT_FAILURE);
 	}
 
