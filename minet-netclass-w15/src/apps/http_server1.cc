@@ -110,11 +110,11 @@ int handle_connection(int sock2)
   bool ok = false;
 
   /* first read loop -- get request and headers*/
-  string inStream;
   //while ((datalen = read(sock2, buf, BUFSIZE)) > 0) {
   //    fprintf(stdout, "reading %d\n", datalen);
   //    inStream.append(buf, datalen);
   //}
+  memset(buf, 0, BUFSIZE+1);
   datalen = minet_read(sock2, buf, BUFSIZE);
 
   if (datalen < 0) {
@@ -122,6 +122,7 @@ int handle_connection(int sock2)
       return -1;
   }
 
+  string inStream;
   inStream.append(buf, datalen);
   // fprintf(stdout, "handle2\n");
   //cout << inStream << '\n';
@@ -143,12 +144,11 @@ int handle_connection(int sock2)
   string filenameStr = url.substr(1);
   cout << filenameStr << '\n';
 
-  FILE* fp = NULL;
   ifstream fs;
-
-
-  stat(filenameStr.c_str(), &filestat);
-  if ((filestat.st_mode & S_IFMT) == S_IFREG) {
+  fs.clear();
+//  memset(filestat, 0, sizeof(filestat));
+  int status = stat(filenameStr.c_str(), &filestat);
+  if (status != -1 && S_ISREG(filestat.st_mode)) {
     try {
         fs.open(filenameStr, std::ios::in);
         ok = true;
@@ -160,28 +160,28 @@ int handle_connection(int sock2)
   cout << "ok: " << ok << '\n';
 
   /* send response */
-  if (ok)
-  {
+  if (ok) {
     /* send headers */
     stringstream ss;
     ss << fs.rdbuf();
     string bodyStr = ss.str();
-    writenbytes(sock2, ok_response, strlen(ok_response));
+    minet_write(sock2, ok_response, strlen(ok_response));
     /* send file */
-    char *bodybuf = new char[bodyStr.size() + 1];
-    writenbytes(sock2, bodybuf, bodyStr.size());
-    delete bodybuf;
-  }
-  else {
+    char *buff = new char[bodyStr.size() + 1];
+    strcpy(buff, bodyStr.c_str());
+    minet_write(sock2, buff, bodyStr.size());
+    delete[] buff;
+  } else {
     // no such file or unable to open file
     // 404 response
     // char test[] = "HTTP/1.0 404 FILE NOT FOUND\r\n\r\nsksksk999sss";
     rc = minet_write(sock2, notok_response, strlen(notok_response));
-    cout << "write " << rc << "bytes\n";
+    // cout << "write " << rc << "bytes\n";
   }
 
   /* close socket and free space */
   minet_close(sock2);
+  fs.close();
 
   if (ok)
     return 0;
