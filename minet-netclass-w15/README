@@ -7,7 +7,7 @@ Copyright (c) 2000 by Peter A. Dinda
 This is a user-level network stack that is intended for use in
 education.  It is not fast, but it tries to be clear and simple.  It
 was developed to support an introductory course in networking at
-Northwestern University, CS 340.  
+Northwestern University, CS 340.
 
 More details can be found at
 http://www.cs.northwestern.edu/~pdinda/minet.  The first thing you

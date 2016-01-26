@@ -99,9 +99,10 @@ int handle_connection(int sock2)
   char *bptr;
   int datalen = 0;
   char *ok_response_f = "HTTP/1.0 200 OK\r\n"\
-                      "Content-type: text/plain\r\n"\
-                      "Content-length: %d \r\n\r\n";
-  char ok_response[100];
+                        "Content-type: text/plain\r\n"\
+                        "Content-length: %d \r\n\r\n";
+
+  // char ok_response[100];
   char *notok_response = "HTTP/1.0 404 FILE NOT FOUND\r\n"\
                          "Content-type: text/html\r\n\r\n"\
                          "<html><body bgColor=black text=white>\n"\
@@ -142,7 +143,6 @@ int handle_connection(int sock2)
 
   /* try opening the file */
   string filenameStr = url.substr(1);
-  cout << filenameStr << '\n';
 
   ifstream fs;
   fs.clear();
@@ -156,27 +156,28 @@ int handle_connection(int sock2)
         ok = false;
     }
   }
-
-  cout << "ok: " << ok << '\n';
-
+  cout << filenameStr << "ok: " << ok << '\n';
   /* send response */
   if (ok) {
     /* send headers */
     stringstream ss;
     ss << fs.rdbuf();
     string bodyStr = ss.str();
-    minet_write(sock2, ok_response, strlen(ok_response));
+
+    char *ok_res_buf = new char[strlen(ok_response_f) + 12];
+    sprintf(ok_res_buf, ok_response_f, bodyStr.size());
+
+    minet_write(sock2, ok_res_buf, strlen(ok_res_buf)+1);
     /* send file */
     char *buff = new char[bodyStr.size() + 1];
+    memset(buff, 0, bodyStr.size() + 1);
     strcpy(buff, bodyStr.c_str());
     minet_write(sock2, buff, bodyStr.size());
     delete[] buff;
   } else {
     // no such file or unable to open file
     // 404 response
-    // char test[] = "HTTP/1.0 404 FILE NOT FOUND\r\n\r\nsksksk999sss";
-    rc = minet_write(sock2, notok_response, strlen(notok_response));
-    // cout << "write " << rc << "bytes\n";
+    rc = minet_write(sock2, notok_response, strlen(notok_response)+1);
   }
 
   /* close socket and free space */
