@@ -108,6 +108,7 @@ int main(int argc,char *argv[])
             } else {  /* for a connection socket, handle the connection */
                 // rc = handle_connection(i);
                 fprintf(stdout, "handle a socket connect\n");
+                rc = handle_connection(i);
                 FD_CLR(i, &master);
             }
         }
@@ -127,43 +128,99 @@ int handle_connection(int sock2)
   char *headers;
   char *endheaders;
   char *bptr;
-  int datalen=0;
+  int datalen = 0;
   char *ok_response_f = "HTTP/1.0 200 OK\r\n"\
-                      "Content-type: text/plain\r\n"\
-                      "Content-length: %d \r\n\r\n";
-  char ok_response[100];
+                        "Content-type: text/plain\r\n"\
+                        "Content-length: %d \r\n\r\n";
+
+  // char ok_response[100];
   char *notok_response = "HTTP/1.0 404 FILE NOT FOUND\r\n"\
                          "Content-type: text/html\r\n\r\n"\
                          "<html><body bgColor=black text=white>\n"\
-                         "<h2>404 FILE NOT FOUND</h2>\n"\
+                         "<h2>404 FILE NOT FOUND</h2>\n"
                          "</body></html>\n";
-  bool ok=true;
+  bool ok = false;
 
   /* first read loop -- get request and headers*/
+  //while ((datalen = read(sock2, buf, BUFSIZE)) > 0) {
+  //    fprintf(stdout, "reading %d\n", datalen);
+  //    inStream.append(buf, datalen);
+  //}
+  memset(buf, 0, BUFSIZE+1);
+  datalen = minet_read(sock2, buf, BUFSIZE);
+
+  if (datalen < 0) {
+      minet_perror("unable to read from client socket\n");
+      return -1;
+  }
+
+  string inStream;
+  inStream.append(buf, datalen);
+  // fprintf(stdout, "handle2\n");
+  //cout << inStream << '\n';
 
   /* parse request to get file name */
   /* Assumption: this is a GET request and filename contains no spaces*/
+  const string CRLF("\r\n");
+  int end = inStream.find_first_of(CRLF);
+  string request_line = inStream.substr(0, end);
+  int pos1 = request_line.find_first_of(" ") + 1;
+  int pos2 = request_line.find_last_of(" ");
 
-    /* try opening the file */
-
-  /* send response */
-  if (ok)
-  {
-    /* send headers */
-
-    /* send file */
+  string url;
+  if (pos1 < pos2) {
+    url = request_line.substr(pos1, pos2 - pos1);
   }
-  else	// send error response
-  {
+
+  /* try opening the file */
+  string filenameStr = url.substr(1);
+
+  ifstream fs;
+  fs.clear();
+//  memset(filestat, 0, sizeof(filestat));
+  int status = stat(filenameStr.c_str(), &filestat);
+  if (status != -1 && S_ISREG(filestat.st_mode)) {
+    try {
+        fs.open(filenameStr, std::ios::in);
+        ok = true;
+    } catch (const exception& e) {
+        ok = false;
+    }
+  }
+  cout << filenameStr << "ok: " << ok << '\n';
+  /* send response */
+  if (ok) {
+    /* send headers */
+    stringstream ss;
+    ss << fs.rdbuf();
+    string bodyStr = ss.str();
+
+    char *ok_res_buf = new char[strlen(ok_response_f) + 12];
+    sprintf(ok_res_buf, ok_response_f, bodyStr.size());
+
+    minet_write(sock2, ok_res_buf, strlen(ok_res_buf)+1);
+    /* send file */
+    char *buff = new char[bodyStr.size() + 1];
+    memset(buff, 0, bodyStr.size() + 1);
+    strcpy(buff, bodyStr.c_str());
+    minet_write(sock2, buff, bodyStr.size());
+    delete[] buff;
+  } else {
+    // no such file or unable to open file
+    // 404 response
+    rc = minet_write(sock2, notok_response, strlen(notok_response)+1);
   }
 
   /* close socket and free space */
+  minet_close(sock2);
+  fs.close();
 
   if (ok)
     return 0;
   else
     return -1;
 }
+
 
 int readnbytes(int fd,char *buf,int size)
 {
