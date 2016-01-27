@@ -3,6 +3,11 @@
 #include <fcntl.h>
 #include <ctype.h>
 #include <sys/stat.h>
+#include <iostream>
+#include <string>
+#include <fstream>
+#include <sstream>
+using namespace std;
 
 #define BUFSIZE 1024
 #define FILENAMESIZE 100
@@ -170,6 +175,10 @@ int handle_connection(int sock2)
   string url;
   if (pos1 < pos2) {
     url = request_line.substr(pos1, pos2 - pos1);
+  } else {
+    minet_close(sock2);
+    fprintf(stderr, "invalid http request\n");
+    return -1;
   }
 
   /* try opening the file */
@@ -187,7 +196,7 @@ int handle_connection(int sock2)
         ok = false;
     }
   }
-  cout << filenameStr << "ok: " << ok << '\n';
+  cout << "GET " << url << " ok: " << ok << '\n';
   /* send response */
   if (ok) {
     /* send headers */

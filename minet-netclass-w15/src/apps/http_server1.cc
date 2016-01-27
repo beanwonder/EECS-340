@@ -119,7 +119,7 @@ int handle_connection(int sock2)
   datalen = minet_read(sock2, buf, BUFSIZE);
 
   if (datalen < 0) {
-      minet_perror("unable to read from client socket\n");
+      fprintf(stderr, "unable to read from client socket\n");
       return -1;
   }
 
@@ -139,6 +139,10 @@ int handle_connection(int sock2)
   string url;
   if (pos1 < pos2) {
     url = request_line.substr(pos1, pos2 - pos1);
+  } else {
+    minet_close(sock2);
+    fprintf(stderr, "invalid http request\n");
+    return -1;
   }
 
   /* try opening the file */
