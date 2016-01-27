@@ -27,7 +27,7 @@ int main(int argc, char * argv[]) {
     char * bptr = NULL;
     char * bptr2 = NULL;
     char * endheaders = NULL;
-   
+
     struct timeval timeout;
     fd_set set;
 
@@ -45,9 +45,9 @@ int main(int argc, char * argv[]) {
 
 
     /* initialize minet */
-    if (toupper(*(argv[1])) == 'K') { 
+    if (toupper(*(argv[1])) == 'K') {
 	minet_init(MINET_KERNEL);
-    } else if (toupper(*(argv[1])) == 'U') { 
+    } else if (toupper(*(argv[1])) == 'U') {
 	minet_init(MINET_USER);
     } else {
 	fprintf(stderr, "First argument must be k or u\n");
@@ -65,7 +65,7 @@ int main(int argc, char * argv[]) {
 	}
 
     /* create socket */
-	sock = minet_socket(SOCK_STREAM); 
+	sock = minet_socket(SOCK_STREAM);
 	if(sock < 0) {
 		minet_perror("client socket");
 		exit(EXIT_FAILURE);
@@ -79,7 +79,7 @@ int main(int argc, char * argv[]) {
 		minet_perror("clinet connect");
 		exit(EXIT_FAILURE);
 	}
-    
+
     /* send request */
 	req = (char *)malloc(strlen(server_path) + 15);
 	sprintf(req, "GET %s HTTP/1.1\n\n", server_path);
@@ -108,9 +108,9 @@ int main(int argc, char * argv[]) {
 	} else {
 		fprintf(stderr, "Connect to remote sever failed\n");
 		exit(EXIT_FAILURE);
-	}	
-    
-	fprintf(wheretoprint, "%s", buf);
+	}
+
+	// fprintf(wheretoprint, "%s", buf);
 
     /* first read loop -- read headers */
 	bptr = buf;
@@ -118,7 +118,7 @@ int main(int argc, char * argv[]) {
 	while(*bptr != ' ')
 		++bptr;
 	++bptr;
-	
+
 	char code[4];
 	strncpy(code, bptr, 3);
 	code[3] = '\0';
@@ -148,7 +148,7 @@ int main(int argc, char * argv[]) {
 		buf[datalen] = '\0';
 		fprintf(wheretoprint, "%s", buf);
 	}
-    
+
     /*close socket and deinitialize */
 	freeaddrinfo(servinfo);
 	if(minet_deinit() < 0) {
@@ -170,7 +170,7 @@ int write_n_bytes(int fd, char * buf, int count) {
     while ((rc = minet_write(fd, buf + totalwritten, count - totalwritten)) > 0) {
 	totalwritten += rc;
     }
-    
+
     if (rc < 0) {
 	return -1;
     } else {

@@ -156,7 +156,7 @@ int handle_connection(int sock2)
         ok = false;
     }
   }
-  cout << filenameStr << "ok: " << ok << '\n';
+  cout << "requested for: " << filenameStr <<" " << "status: " << ok << '\n';
   /* send response */
   if (ok) {
     /* send headers */

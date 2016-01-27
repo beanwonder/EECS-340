@@ -14,7 +14,7 @@ int readnbytes(int,char *,int);
 int main(int argc,char *argv[])
 {
   int server_port;
-  int sock,sock2;
+  int listener,sock2;
   struct sockaddr_in sa,sa2;
   int rc,i;
   fd_set readlist;
@@ -35,30 +35,85 @@ int main(int argc,char *argv[])
   }
 
   /* initialize and make socket */
+  if (toupper(*(argv[1])) == 'K') {
+    minet_init(MINET_KERNEL);
+  } else if (toupper(*(argv[1])) == 'U') {
+    minet_init(MINET_USER);
+  } else {
+    minet_perror("usage: http_server k|u port\n");
+    exit(-1);
+  }
+
+  listener = minet_socket(SOCK_STREAM);
+
+  if (listener < 0) {
+    minet_perror("failed to make socket\n");
+    exit(-1);
+  }
 
   /* set server address*/
+  memset(&sa, 0, sizeof(sa));
+  sa.sin_family = AF_INET;
+  sa.sin_addr.s_addr = INADDR_ANY;
+  sa.sin_port = htons(server_port);
 
   /* bind listening socket */
-
+  if (minet_bind(listener, &sa) < 0) {
+    minet_close(listener);
+    minet_perror("failed to binding\n");
+    exit(-1);
+  }
   /* start listening */
+  int backlog = 10;
+  if (minet_listen(listener, backlog) < 0) {
+    minet_close(listener);
+    minet_perror("failed to listen\n");
+    exit(-1);
+  } else {
+    fprintf(stdout, "server started to linsten at port %d ...\n", server_port);
+  }
+
+  // add listener to readlist
+  fd_set master;
+  FD_SET(listener, &master);
+  maxfd = listener;
 
   /* connection handling loop */
   while(1)
   {
     /* create read list */
+    readlist = master;
 
     /* do a select */
+    if (select(maxfd+1, &readlist, NULL, NULL, NULL) < 0) {
+        minet_close(listener);
+        minet_perror("failed to select\n");
+        exit(-1);
+    }
 
     /* process sockets that are ready */
-
+    for (int i=0; i <= maxfd; i++) {
       /* for the accept socket, add accepted connection to connections */
-      if (i == sock)
-      {
-      }
-      else /* for a connection socket, handle the connection */
-      {
-	rc = handle_connection(i);
-      }
+        if (FD_ISSET(i, &readlist)) {
+            if (i == listener) {
+                if ((sock2 = minet_accept(listener, &sa2)) < 0) {
+                    minet_perror("failed to accept\n");
+                } else {
+                    FD_SET(sock2, &master);
+                    if (sock2 > maxfd) {
+                        maxfd = sock2;
+                    }
+                    fprintf(stdout, "accept a socket \n");
+                }
+            } else {  /* for a connection socket, handle the connection */
+                // rc = handle_connection(i);
+                fprintf(stdout, "handle a socket connect\n");
+                FD_CLR(i, &master);
+            }
+        }
+
+    }
+
   }
 }
 
