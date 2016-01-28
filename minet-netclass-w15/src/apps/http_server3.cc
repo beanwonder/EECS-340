@@ -86,11 +86,7 @@ int main(int argc,char *argv[])
     	minet_perror("usage: http_server k|u port\n");
     	exit(-1);
   	}
-<<<<<<< HEAD
 
-=======
-	
->>>>>>> 682c10808b0c3123d97a36df7fd3592357b593e3
 	memset(&hints, 0, sizeof(hints));
 	hints.ai_family = AF_INET;
 	hints.ai_socktype = SOCK_STREAM;
@@ -109,11 +105,7 @@ int main(int argc,char *argv[])
 	fcntl(listener, F_SETFL, O_NONBLOCK);
 
  	/* set server address*/
-<<<<<<< HEAD
 
-=======
-	
->>>>>>> 682c10808b0c3123d97a36df7fd3592357b593e3
     /* bind listening socket */
 	if(minet_bind(listener, (sockaddr_in *)servinfo->ai_addr) < 0) {
 		minet_close(listener);
@@ -185,11 +177,7 @@ int main(int argc,char *argv[])
 							else if(i->state == NEW) {
 								fprintf(stdout, "New on socket %d\n", index);
 								//do not know what to do here
-<<<<<<< HEAD
 								i->state = READING_HEADERS;
-=======
-								i->state = READING_HEADERS;	
->>>>>>> 682c10808b0c3123d97a36df7fd3592357b593e3
 							}
 							else
 								fprintf(stdout, "readlist socket %d state error\n", index);
@@ -201,20 +189,12 @@ int main(int argc,char *argv[])
 									FD_CLR(index, &readlist);
 									FD_SET(index, &writelist);
 								}
-<<<<<<< HEAD
 							} else
-=======
-							} else 
->>>>>>> 682c10808b0c3123d97a36df7fd3592357b593e3
 								fprintf(stdout, "readlist file %d state error\n", index);
 						}
 					}
 				}
-<<<<<<< HEAD
 			}
-=======
-			}	
->>>>>>> 682c10808b0c3123d97a36df7fd3592357b593e3
 
 			if(FD_ISSET(index, &writelist2)) {
 				for(i = connections.first; i != NULL; i = i -> next) {
@@ -318,19 +298,11 @@ void read_headers(connection *con)
     delete[] request_line;
     fprintf(stdout, "GET status: %d\n", con->ok);
     /* try opening the file */
-<<<<<<< HEAD
-    /* set to non-blocking, get size */
 
-    //write_response(con);
+    /* set to non-blocking, get size */
     con->state = WRITING_RESPONSE;
     write_response(con);
 
-=======
-      
-	/* set to non-blocking, get size */
-  
-    //write_response(con);
->>>>>>> 682c10808b0c3123d97a36df7fd3592357b593e3
 }
 
 void write_response(connection *con)
@@ -348,6 +320,7 @@ void write_response(connection *con)
                          "<h2>404 FILE NOT FOUND</h2>\n"\
                          "</body></html>\n";
   /* send response */
+  fprintf(stdout, "write_response\n");
   if (con->ok)
   {
     /* send headers */
