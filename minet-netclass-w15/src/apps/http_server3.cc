@@ -3,10 +3,12 @@
 #include <fcntl.h>
 #include <ctype.h>
 #include <sys/stat.h>
+#include <assert.h>
 
 
 #define FILENAMESIZE 100
 #define BUFSIZE 1024
+#define BACKLOG 20
 
 typedef enum \
 {NEW,READING_HEADERS,WRITING_RESPONSE,READING_FILE,WRITING_FILE,CLOSED} states;
@@ -24,7 +26,10 @@ struct connection_s
   bool ok;
   long filelen;
   states state;
-  int headers_read,response_written,file_read,file_written;
+  int headers_read; //how much left to read
+  int response_written;
+  int file_read;
+  int file_written;
 
   connection *next;
 };
@@ -38,7 +43,6 @@ void add_connection(int,connection_list *);
 void insert_connection(int,connection_list *);
 void init_connection(connection *con);
 
-
 int writenbytes(int,char *,int);
 int readnbytes(int,char *,int);
 void read_headers(connection *);
@@ -49,13 +53,16 @@ void write_file(connection *);
 int main(int argc,char *argv[])
 {
   int server_port;
-  int sock,sock2;
+  int listener, accepter;
   struct sockaddr_in sa,sa2;
   int rc;
   fd_set readlist,writelist;
   connection_list connections;
   connection *i;
   int maxfd;
+  struct addrinfo hints;
+  struct addrinfo * servinfo;
+  int sock;
 
   /* parse command line args */
   if (argc != 3)
@@ -70,41 +77,233 @@ int main(int argc,char *argv[])
     exit(-1);
   }
 
-  /* initialize and make socket */
+    /* initialize and make socket */
+    if (toupper(*(argv[1])) == 'K') {
+    	minet_init(MINET_KERNEL);
+    } else if (toupper(*(argv[1])) == 'U') {
+    	minet_init(MINET_USER);
+    } else {
+    	minet_perror("usage: http_server k|u port\n");
+    	exit(-1);
+  	}
 
-  /* set server address*/
+	memset(&hints, 0, sizeof(hints));
+	hints.ai_family = AF_INET;
+	hints.ai_socktype = SOCK_STREAM;
+	hints.ai_flags = AI_PASSIVE;
 
-  /* bind listening socket */
+	if(getaddrinfo(NULL, argv[2], &hints, &servinfo) != 0) {
+		perror("clinet getaddrinfo");
+		exit(EXIT_FAILURE);
+	}
 
-  /* start listening */
+	listener = minet_socket(SOCK_STREAM);
+	if(listener < 0) {
+		minet_perror("make socket error:");
+		exit(EXIT_FAILURE);
+	}
+	fcntl(listener, F_SETFL, O_NONBLOCK);
 
-  /* connection handling loop */
-  while(1)
-  {
-    /* create read and write lists */
+ 	/* set server address*/
 
-    /* do a select */
+    /* bind listening socket */
+	if(minet_bind(listener, (sockaddr_in *)servinfo->ai_addr) < 0) {
+		minet_close(listener);
+		minet_perror("bind listener error:");
+		exit(EXIT_FAILURE);
+	}
 
-    /* process sockets that are ready */
-  }
+  	/* start listening */
+	if(minet_listen(listener, BACKLOG) < 0) {
+		minet_close(listener);
+		minet_perror("cannot start listener:");
+		exit(EXIT_FAILURE);
+	} else {
+		fprintf(stdout, "server start listening at port %d ...\n", server_port);
+	}
+
+	/* initialize readlist and write list*/
+	FD_ZERO(&readlist);
+	FD_ZERO(&writelist);
+	FD_SET(listener, &readlist);
+	maxfd = listener;
+	connections.first = NULL;
+	connections.last = NULL;
+
+    /* connection handling loop */
+    while(1)
+    {
+    	/* create read and write lists */
+		fd_set readlist2 = readlist;
+		fd_set writelist2 = writelist;
+
+    	/* do a select */
+		if(select(maxfd + 1, &readlist2, &writelist2, NULL, NULL) < 0) {
+			minet_close(listener);
+			minet_perror("select error:");
+			exit(EXIT_FAILURE);
+		}
+
+		fprintf(stdout, "out of select\n");
+
+    	/* process sockets that are ready */
+		for (int index = 0; index <= maxfd; ++index) {
+			/* for each sock on readlist that is readable*/
+			if(FD_ISSET(index, &readlist2)) {
+				if(index == listener) {
+					fprintf(stdout, "selected the listener\n");
+					if((sock = minet_accept(listener, &sa2)) < 0) {
+						if(errno == EAGAIN) {
+							continue;
+						} else {
+							minet_perror("failed to accept:");
+							// close all sockets and exit
+						}
+					} else {
+						fcntl(sock, F_SETFL, O_NONBLOCK);
+						FD_SET(sock, &readlist);
+						if(sock > maxfd)
+							maxfd = sock;
+						insert_connection(sock, &connections);
+						fprintf(stdout, "accepted a socket\n");
+					}
+				} else {
+					for(i = connections.first; i != NULL; i = i->next) {
+						if(i->sock == index) {
+							if(i->state == READING_HEADERS) {
+								fprintf(stdout, "Reading Headers on socket %d\n", index);
+								read_headers(i);
+							}
+							else if(i->state == NEW) {
+								fprintf(stdout, "New on socket %d\n", index);
+								//do not know what to do here
+								i->state = READING_HEADERS;
+							}
+							else
+								fprintf(stdout, "readlist socket %d state error\n", index);
+						} else if(i->fd == index) {
+							if(i->state == READING_FILE) {
+								fprintf(stdout, "Reading File on fd %d\n", index);
+								read_file(i);
+								if(i->state == WRITING_FILE) {
+									FD_CLR(index, &readlist);
+									FD_SET(index, &writelist);
+								}
+							} else
+								fprintf(stdout, "readlist file %d state error\n", index);
+						}
+					}
+				}
+			}
+
+			if(FD_ISSET(index, &writelist2)) {
+				for(i = connections.first; i != NULL; i = i -> next) {
+					if(i->sock == index) {
+						if(i->state == WRITING_RESPONSE) {
+							fprintf(stdout, "Writing response on socket %d\n", index);
+							write_response(i);
+						}
+						else
+							fprintf(stdout, "writelist socket %d state error\n", index);
+					} else if(i->fd == index) {
+						if(i->state == WRITING_FILE) {
+							fprintf(stdout, "Writing file on fd %d\n", index);
+							write_file(i);
+							if(i->state == READING_FILE) {
+								FD_CLR(index, &writelist);
+								FD_SET(index, &readlist);
+							}
+						} else {
+							fprintf(stdout, "writelist file %d state error\n", index);
+						}
+					}
+				}
+			}
+		}
+    }
 }
 
 void read_headers(connection *con)
 {
+    fprintf(stdout, "entering into read headers");
+    int rc = readnbytes(con->sock, con->buf, BUFSIZE);
   /* first read loop -- get request and headers*/
+    if (rc < 0) {
+        if (errno == EAGAIN) {
+            return;
+        } else {
+            minet_close(con->sock);
+            con->state = CLOSED;
+            minet_perror("read headers");
+            return;
+        }
+    } else if (rc == 0) {
+        minet_close(con->sock);
+        con->state = CLOSED;
+        fprintf(stderr, "reader: client socket closed");
+        return;
+    }
 
-  /* parse request to get file name */
-  /* Assumption: this is a GET request and filename contains no spaces*/
-  
-  /* get file name and size, set to non-blocking */
-    
+    fprintf(stdout, "read whole request\n");
+    con->headers_read = rc;
+    // assuming requests are no longer than buffer
+    con->buf[rc] = '\0';
+    // when come here header reqests are read completed
+
+    const char HEADERENDSEP[] = "\r\n\r\n";
+    /* parse request to get file name */
+
+    if ((con->endheaders = strstr(con->buf, HEADERENDSEP)) == NULL) {
+        minet_close(con->sock);
+        con->state = CLOSED;
+        fprintf(stderr, "discard invalid http request\n");
+        return;
+    }
+    /* assumption: this is a get request and filename contains no spaces*/
+    int count = con->endheaders - con->buf;
+    char *request_line = new char[count+1];
+    strncpy(request_line, con->buf, count);
+    request_line[count] = '\0';
+    // assume filename are always smaller than FILENAMESIZE;
+    char *sp1 = strchr(request_line, ' ');
+    char *sp2 = strchr(sp1+1, ' ');
+    assert(sp2 > sp1);
+    assert((sp2-sp1) <= FILENAMESIZE);
+
+    /* get file name and size, set to non-blocking */
     /* get name */
-    
+    if (sp1[1] != '/') {
+        con->ok = false;
+
+    } else {
+        strncpy(con->filename, sp1+2, sp2-sp1-1);
+        con->filename[sp2-sp1-1] = '\0';
+        struct stat filestat;
+        memset(&filestat, 0, sizeof(filestat));
+        int status = stat(con->filename, &filestat);
+        if (status != -1 && S_ISREG(filestat.st_mode)) {
+            int fd = open(con->filename, O_RDONLY);
+            if (fd != -1) {
+                fcntl(fd, F_SETFL, O_NONBLOCK);
+                con->fd = fd;
+                con->filelen = filestat.st_size;
+                con->ok = true;
+            } else {
+                con->ok = false;
+            }
+        } else {
+            con->ok = false;
+        }
+    }
+    delete[] request_line;
+    fprintf(stdout, "GET status: %d\n", con->ok);
     /* try opening the file */
-      
-	/* set to non-blocking, get size */
-  
-  write_response(con);
+    /* set to non-blocking, get size */
+
+    //write_response(con);
+    con->state = WRITING_RESPONSE;
+    write_response(con);
+
 }
 
 void write_response(connection *con)
@@ -128,7 +327,7 @@ void write_response(connection *con)
   }
   else
   {
-  }  
+  }
 }
 
 void read_file(connection *con)
@@ -138,7 +337,7 @@ void read_file(connection *con)
     /* send file */
   rc = read(con->fd,con->buf,BUFSIZE);
   if (rc < 0)
-  { 
+  {
     if (errno == EAGAIN)
       return;
     fprintf(stderr,"error reading requested file %s\n",con->filename);
@@ -198,7 +397,7 @@ int readnbytes(int fd,char *buf,int size)
   }
   else
     return totalread;
-}  
+}
 
 int writenbytes(int fd,char *str,int size)
 {
@@ -206,7 +405,7 @@ int writenbytes(int fd,char *str,int size)
   int totalwritten =0;
   while ((rc = minet_write(fd,str+totalwritten,size-totalwritten)) > 0)
     totalwritten += rc;
-  
+
   if (rc < 0)
     return -1;
   else
@@ -215,7 +414,7 @@ int writenbytes(int fd,char *str,int size)
 
 
 // inserts a connection in place of a closed connection
-// if there are no closed connections, appends the connection 
+// if there are no closed connections, appends the connection
 // to the end of the list
 
 void insert_connection(int sock,connection_list *con_list)
@@ -232,10 +431,11 @@ void insert_connection(int sock,connection_list *con_list)
   }
   add_connection(sock,con_list);
 }
- 
+
 void add_connection(int sock,connection_list *con_list)
 {
   connection *con = (connection *) malloc(sizeof(connection));
+  init_connection(con);
   con->next = NULL;
   con->state = NEW;
   con->sock = sock;
@@ -256,4 +456,6 @@ void init_connection(connection *con)
   con->response_written = 0;
   con->file_read = 0;
   con->file_written = 0;
+  con->fd = -1;
+  con->sock = -1;
 }
