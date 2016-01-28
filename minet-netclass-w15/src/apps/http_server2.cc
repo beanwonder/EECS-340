@@ -75,7 +75,7 @@ int main(int argc,char *argv[])
     minet_perror("failed to listen\n");
     exit(-1);
   } else {
-    fprintf(stdout, "server started to linsten at port %d ...\n", server_port);
+    fprintf(stdout, "server start listening at port %d ...\n", server_port);
   }
 
   // add listener to readlist

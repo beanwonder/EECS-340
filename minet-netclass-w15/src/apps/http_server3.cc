@@ -7,6 +7,7 @@
 
 #define FILENAMESIZE 100
 #define BUFSIZE 1024
+#define BACKLOG 20
 
 typedef enum \
 {NEW,READING_HEADERS,WRITING_RESPONSE,READING_FILE,WRITING_FILE,CLOSED} states;
@@ -24,7 +25,10 @@ struct connection_s
   bool ok;
   long filelen;
   states state;
-  int headers_read,response_written,file_read,file_written;
+  int headers_read; //how much left to read
+  int response_written;
+  int file_read;
+  int file_written;
 
   connection *next;
 };
@@ -38,7 +42,6 @@ void add_connection(int,connection_list *);
 void insert_connection(int,connection_list *);
 void init_connection(connection *con);
 
-
 int writenbytes(int,char *,int);
 int readnbytes(int,char *,int);
 void read_headers(connection *);
@@ -49,13 +52,16 @@ void write_file(connection *);
 int main(int argc,char *argv[])
 {
   int server_port;
-  int sock,sock2;
+  int listener, accepter;
   struct sockaddr_in sa,sa2;
   int rc;
   fd_set readlist,writelist;
   connection_list connections;
   connection *i;
   int maxfd;
+  struct addrinfo hints;
+  struct addrinfo * servinfo;
+  int sock;
 
   /* parse command line args */
   if (argc != 3)
@@ -70,23 +76,150 @@ int main(int argc,char *argv[])
     exit(-1);
   }
 
-  /* initialize and make socket */
+    /* initialize and make socket */
+    if (toupper(*(argv[1])) == 'K') {
+    	minet_init(MINET_KERNEL);
+    } else if (toupper(*(argv[1])) == 'U') {
+    	minet_init(MINET_USER);
+    } else {
+    	minet_perror("usage: http_server k|u port\n");
+    	exit(-1);
+  	}
+	
+	memset(&hints, 0, sizeof(hints));
+	hints.ai_family = AF_INET;
+	hints.ai_socktype = SOCK_STREAM;
+	hints.ai_flags = AI_PASSIVE;
 
-  /* set server address*/
+	if(getaddrinfo(NULL, argv[2], &hints, &servinfo) != 0) {
+		perror("clinet getaddrinfo");
+		exit(EXIT_FAILURE);
+	}
 
-  /* bind listening socket */
+	listener = minet_socket(SOCK_STREAM);
+	if(listener < 0) {
+		minet_perror("make socket error:");
+		exit(EXIT_FAILURE);
+	}
+	fcntl(listener, F_SETFL, O_NONBLOCK);
 
-  /* start listening */
+ 	/* set server address*/
+	
+    /* bind listening socket */
+	if(minet_bind(listener, (sockaddr_in *)servinfo->ai_addr) < 0) {
+		minet_close(listener);
+		minet_perror("bind listener error:");
+		exit(EXIT_FAILURE);
+	}
 
-  /* connection handling loop */
-  while(1)
-  {
-    /* create read and write lists */
+  	/* start listening */
+	if(minet_listen(listener, BACKLOG) < 0) {
+		minet_close(listener);
+		minet_perror("cannot start listener:");
+		exit(EXIT_FAILURE);
+	} else {
+		fprintf(stdout, "server start listening at port %d ...\n", server_port);
+	}
 
-    /* do a select */
+	/* initialize readlist and write list*/
+	FD_ZERO(&readlist);
+	FD_ZERO(&writelist);
+	FD_SET(listener, &readlist);
+	maxfd = listener;
+	connections.first = NULL;
+	connections.last = NULL;
 
-    /* process sockets that are ready */
-  }
+    /* connection handling loop */
+    while(1)
+    {
+    	/* create read and write lists */
+		fd_set readlist2 = readlist;
+		fd_set writelist2 = writelist;
+
+    	/* do a select */
+		if(select(maxfd + 1, &readlist2, &writelist2, NULL, NULL) < 0) {
+			minet_close(listener);
+			minet_perror("select error:");
+			exit(EXIT_FAILURE);
+		}
+
+		fprintf(stdout, "out of select\n");
+
+    	/* process sockets that are ready */
+		for (int index = 0; index <= maxfd; ++index) {
+			/* for each sock on readlist that is readable*/
+			if(FD_ISSET(index, &readlist2)) {
+				if(index == listener) {
+					fprintf(stdout, "selected the listener\n");
+					if((sock = minet_accept(listener, &sa2)) < 0) {
+						if(errno == EAGAIN) {
+							continue;
+						} else {
+							minet_perror("failed to accept:");
+							// close all sockets and exit
+						}
+					} else {
+						fcntl(sock, F_SETFL, O_NONBLOCK);
+						FD_SET(sock, &readlist);
+						if(sock > maxfd)
+							maxfd = sock;
+						insert_connection(sock, &connections);
+						fprintf(stdout, "accepted a socket\n");
+					}
+				} else {
+					for(i = connections.first; i != NULL; i = i->next) {
+						if(i->sock == index) {
+							if(i->state == READING_HEADERS) {
+								fprintf(stdout, "Reading Headers on socket %d\n", index);
+								read_headers(i);
+							}
+							else if(i->state == NEW) {
+								fprintf(stdout, "New on socket %d\n", index);
+								//do not know what to do here
+								i->state = READING_HEADERS;	
+							}
+							else
+								fprintf(stdout, "readlist socket %d state error\n", index);
+						} else if(i->fd == index) {
+							if(i->state == READING_FILE) {
+								fprintf(stdout, "Reading File on fd %d\n", index);
+								read_file(i);
+								if(i->state == WRITING_FILE) {
+									FD_CLR(index, &readlist);
+									FD_SET(index, &writelist);
+								}
+							} else 
+								fprintf(stdout, "readlist file %d state error\n", index);
+						}
+					}
+				}
+			}	
+
+			if(FD_ISSET(index, &writelist2)) {
+				for(i = connections.first; i != NULL; i = i -> next) {
+					if(i->sock == index) {
+						if(i->state == WRITING_RESPONSE) {
+							fprintf(stdout, "Writing response on socket %d\n", index);
+							write_response(i);
+						}
+						else
+							fprintf(stdout, "writelist socket %d state error\n", index);
+					} else if(i->fd == index) {
+						if(i->state == WRITING_FILE) {
+							fprintf(stdout, "Writing file on fd %d\n", index);
+							write_file(i);
+							if(i->state == READING_FILE) {
+								FD_CLR(index, &writelist);
+								FD_SET(index, &readlist);
+							}
+						} else {
+							fprintf(stdout, "writelist file %d state error\n", index);
+						}
+					}
+				}
+			}
+		}
+    }
 }
 
 void read_headers(connection *con)
@@ -104,7 +237,7 @@ void read_headers(connection *con)
       
 	/* set to non-blocking, get size */
   
-  write_response(con);
+    //write_response(con);
 }
 
 void write_response(connection *con)
@@ -236,6 +369,7 @@ void insert_connection(int sock,connection_list *con_list)
 void add_connection(int sock,connection_list *con_list)
 {
   connection *con = (connection *) malloc(sizeof(connection));
+  init_connection(con);
   con->next = NULL;
   con->state = NEW;
   con->sock = sock;
@@ -256,4 +390,6 @@ void init_connection(connection *con)
   con->response_written = 0;
   con->file_read = 0;
   con->file_written = 0;
+  con->fd = -1;
+  con->sock = -1;
 }
