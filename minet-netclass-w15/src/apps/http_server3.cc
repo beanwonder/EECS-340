@@ -234,13 +234,13 @@ void read_headers(connection *con)
         } else {
             minet_close(con->sock);
             con->state = CLOSED;
-            minet_perror("read headers");
+            minet_perror("read headers\n");
             return;
         }
     } else if (rc == 0) {
         minet_close(con->sock);
         con->state = CLOSED;
-        fprintf(stderr, "reader: client socket closed");
+        fprintf(stderr, "reader: client socket closed\n");
         return;
     }
 
@@ -307,27 +307,74 @@ void read_headers(connection *con)
 
 void write_response(connection *con)
 {
-  int sock2 = con->sock;
-  int rc;
-  int written = con->response_written;
-  char *ok_response_f = "HTTP/1.0 200 OK\r\n"\
+
+    int sock2 = con->sock;
+    int rc;
+    int written = con->response_written;
+    char *ok_response_f = "HTTP/1.0 200 OK\r\n"\
                       "Content-type: text/plain\r\n"\
                       "Content-length: %d \r\n\r\n";
-  char ok_response[100];
-  char *notok_response = "HTTP/1.0 404 FILE NOT FOUND\r\n"\
+    char ok_response[100];
+    char *notok_response = "HTTP/1.0 404 FILE NOT FOUND\r\n"\
                          "Content-type: text/html\r\n\r\n"\
                          "<html><body bgColor=black text=white>\n"\
                          "<h2>404 FILE NOT FOUND</h2>\n"\
                          "</body></html>\n";
-  /* send response */
-  fprintf(stdout, "write_response\n");
-  if (con->ok)
-  {
+    /* send response */
+    fprintf(stdout, "write_response\n");
+    if (con->ok) {
     /* send headers */
-  }
-  else
-  {
-  }
+        const int total = strlen(ok_reponse_f) + 1;
+        if (con->response == total) {
+            con->state = READING_FILE;
+            read_file(con);
+        } else {
+            int rest = total - con->response_write;
+            // maybe should assmue never block here
+            rc = writenbytes(sock2, ok_response_f+(con->response_write), rest);
+            if (rc < 0) {
+                if (errno == EAGAIN) {
+                    return;
+                } else {
+                    minet_close(con->sock);
+                    con->state = CLOSED;
+                    minet_perror("write 404 response\n");
+                    return;
+                }
+            } else {
+                con->response_write += rc;
+                return;
+            }
+        }
+
+    } else {
+        //
+        const int total = strlen(notok_response) + 1;
+        if (con->response_write == total) {
+            // finish write response
+            //
+            minet_close(con->sock);
+            con->state = CLOSED;
+            return;
+        } else {
+            int rest = total - con->response_write;
+            rc = writenbytes(sock2, notok_response+(con->response_write), rest);
+            // maybe should assmue never block here
+            if (rc < 0) {
+                if (errno == EAGAIN) {
+                    return;
+                } else {
+                    minet_close(con->sock);
+                    con->state = CLOSED;
+                    minet_perror("write 404 response\n");
+                    return;
+                }
+            } else {
+                con->response_write += rc;
+                return;
+            }
+        }
+    }
 }
 
 void read_file(connection *con)

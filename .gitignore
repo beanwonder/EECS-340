@@ -35,4 +35,4 @@
 */bin
 *.jar
 */docs
-minet.cfg
+*.cfg
