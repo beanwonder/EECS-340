@@ -348,14 +348,14 @@ void write_response(connection *con)
     fprintf(stdout, "write_response\n");
     if (con->ok) {
     /* send headers */
-        const int total = strlen(ok_reponse_f) + 1;
-        if (con->response == total) {
+        const int total = strlen(ok_response_f) + 1;
+        if (con->response_written == total) {
             con->state = READING_FILE;
             read_file(con);
         } else {
-            int rest = total - con->response_write;
+            int rest = total - con->response_written;
             // maybe should assmue never block here
-            rc = writenbytes(sock2, ok_response_f+(con->response_write), rest);
+            rc = writenbytes(sock2, ok_response_f+(con->response_written), rest);
             if (rc < 0) {
                 if (errno == EAGAIN) {
                     return;
@@ -366,7 +366,7 @@ void write_response(connection *con)
                     return;
                 }
             } else {
-                con->response_write += rc;
+                con->response_written += rc;
                 return;
             }
         }
@@ -374,15 +374,15 @@ void write_response(connection *con)
     } else {
         //
         const int total = strlen(notok_response) + 1;
-        if (con->response_write == total) {
+        if (con->response_written == total) {
             // finish write response
             //
             minet_close(con->sock);
             con->state = CLOSED;
             return;
         } else {
-            int rest = total - con->response_write;
-            rc = writenbytes(sock2, notok_response+(con->response_write), rest);
+            int rest = total - con->response_written;
+            rc = writenbytes(sock2, notok_response+(con->response_written), rest);
             // maybe should assmue never block here
             if (rc < 0) {
                 if (errno == EAGAIN) {
@@ -394,7 +394,7 @@ void write_response(connection *con)
                     return;
                 }
             } else {
-                con->response_write += rc;
+                con->response_written += rc;
                 return;
             }
         }
