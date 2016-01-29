@@ -123,22 +123,44 @@ int main(int argc,char *argv[])
 	}
 
 	/* initialize readlist and write list*/
-	FD_ZERO(&readlist);
-	FD_ZERO(&writelist);
-	FD_SET(listener, &readlist);
-	maxfd = listener;
 	connections.first = NULL;
 	connections.last = NULL;
 
     /* connection handling loop */
     while(1)
     {
+		fprintf(stdout, "in while loop\n");
     	/* create read and write lists */
-		fd_set readlist2 = readlist;
-		fd_set writelist2 = writelist;
+		FD_ZERO(&readlist);
+		FD_ZERO(&writelist);
+		FD_SET(listener, &readlist);
+		maxfd = listener;
+		for(i = connections.first; i != NULL; i = i->next) {
+			if (i->state == NEW || i->state == READING_HEADERS) {	
+				FD_SET(i->sock, &readlist);
+				if(i->sock > maxfd) {
+					maxfd = i->sock;
+				}
+			} else if(i -> state == READING_FILE) {
+				FD_SET(i->fd, &readlist);
+				if(i->fd > maxfd) {
+					maxfd = i->fd;
+				}
+			} else if (i->state == WRITING_RESPONSE) {
+				FD_SET(i->sock, &writelist);
+				if(i->sock > maxfd) {
+					maxfd = i->sock;
+				}
+			} else if (i->state == WRITING_FILE) {
+				FD_SET(i->fd, &writelist);
+				if(i->fd > maxfd) {
+					maxfd = i->fd;
+				}
+			}
+		}
 
     	/* do a select */
-		if(select(maxfd + 1, &readlist2, &writelist2, NULL, NULL) < 0) {
+		if(select(maxfd + 1, &readlist, &writelist, NULL, NULL) < 0) {
 			minet_close(listener);
 			minet_perror("select error:");
 			exit(EXIT_FAILURE);
@@ -149,7 +171,7 @@ int main(int argc,char *argv[])
     	/* process sockets that are ready */
 		for (int index = 0; index <= maxfd; ++index) {
 			/* for each sock on readlist that is readable*/
-			if(FD_ISSET(index, &readlist2)) {
+			if(FD_ISSET(index, &readlist)) {
 				if(index == listener) {
 					fprintf(stdout, "selected the listener\n");
 					if((sock = minet_accept(listener, &sa2)) < 0) {
@@ -196,7 +218,7 @@ int main(int argc,char *argv[])
 				}
 			}
 
-			if(FD_ISSET(index, &writelist2)) {
+			if(FD_ISSET(index, &writelist)) {
 				for(i = connections.first; i != NULL; i = i -> next) {
 					if(i->sock == index) {
 						if(i->state == WRITING_RESPONSE) {
@@ -225,8 +247,10 @@ int main(int argc,char *argv[])
 
 void read_headers(connection *con)
 {
-    fprintf(stdout, "entering into read headers");
-    int rc = readnbytes(con->sock, con->buf, BUFSIZE);
+//    fprintf(stdout, "entering into read headers\n");
+    int rc;
+	rc = readnbytes(con->sock, con->buf, BUFSIZE);
+	fprintf(stdout, "%s", con->buf);
   /* first read loop -- get request and headers*/
     if (rc < 0) {
         if (errno == EAGAIN) {
@@ -240,7 +264,7 @@ void read_headers(connection *con)
     } else if (rc == 0) {
         minet_close(con->sock);
         con->state = CLOSED;
-        fprintf(stderr, "reader: client socket closed");
+        fprintf(stderr, "reader: client socket closed\n");
         return;
     }
 
@@ -392,7 +416,7 @@ int readnbytes(int fd,char *buf,int size)
     totalread += rc;
 
   if (rc < 0)
-  {
+  { 
     return -1;
   }
   else
