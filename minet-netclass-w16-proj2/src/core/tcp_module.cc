@@ -49,7 +49,17 @@ int main(int argc, char *argv[])
         if (event.eventtype!=MinetEvent::Dataflow
             || event.direction!=MinetEvent::IN) {
             MinetSendToMonitor(MinetMonitoringEvent("Unknown event ignored."));
-        // if we received a valid event from Minet, do processing
+
+            // if we received a valid event from Minet, do processing
+
+            if (event.handle == mux) {
+                // fill by ni
+            }
+
+            if (event.handle == sock) {
+                // fill by shen
+            }
+
         } else {
             cerr << "invalid event from Minet" << endl;
             //  Data from the IP layer below  //
