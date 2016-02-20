@@ -63,29 +63,29 @@ int main(int argc, char *argv[])
         p.ExtractHeaderFromPayload<TCPHeader>(tcphlen);
         IPHeader iph=p.FindHeader(Headers::IPHeader);
         TCPHeader tcph=p.FindHeader(Headers::TCPHeader);
-	    Connection c;
+	      Connection c;
 
         cerr << "IP Header is "<<iph<<"\n";
         cerr << "TCP Header is "<<tcph << "\n";
-		if (!tcph.IsCorrectChecksum(p)) {
-			cerr << "Checksum check FAILED!!!\n";
-			//continue;
-		}
+		    if (!tcph.IsCorrectChecksum(p)) {
+			    cerr << "Checksum check FAILED!!!\n";
+			    //continue;
+		    }
 
-		// Identifty the connection with 5-tuple
+		    // Identifty the connection with 5-tuple
         iph.GetDestIP(c.src);
-		iph.GetSourceIP(c.dest);
-		iph.GetProtocol(c.protocol);
-		tcph.GetDestPort(c.srcport);
-		tcph.GetSourcePort(c.destport);
-		ConnectionList<ConnectionToStateMapping<TCPState>>::iterator cs = clist.FindMatching(c);
-		if(cs == clist.end()) {
-		  cerr << "ERROR: invalid connection detected!!!\n";
-		} else {
-		  cerr << "INFO:  identified connection\n";
-		}
+		    iph.GetSourceIP(c.dest);
+		    iph.GetProtocol(c.protocol);
+		    tcph.GetDestPort(c.srcport);
+		    tcph.GetSourcePort(c.destport);
+		    ConnectionList<ConnectionToStateMapping<TCPState>>::iterator cs = clist.FindMatching(c);
+		    if(cs == clist.end()) {
+		      cerr << "ERROR: invalid connection detected!!!\n";
+		    } else {
+		    cerr << "INFO:  identified connection\n";
+		    }
       }
-          //  Data from the Sockets layer above  //
+      //  Data from the Sockets layer above  //
       if (event.handle==sock) {
         SockRequestResponse s;
         MinetReceive(sock,s);
