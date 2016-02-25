@@ -78,12 +78,15 @@ int main(int argc, char *argv[])
                 iph.GetProtocol(c.protocol);
                 tcph.GetDestPort(c.srcport);
                 tcph.GetSourcePort(c.destport);
-                ConnectionList<TCPState>::iterator cs = clist.FindMatching(c);
+                auto cs = clist.FindMatching(c);
                 cerr << (*cs).state << '\n';
 
                 if(cs == clist.end()) {
                     // cerr << "ERROR: invalid connection detected!!!\n";
                     // TODO how to identify a LISTEN connection ?
+                } else {
+                    SockRequestResponse resp;
+                    cerr << "INFO:  identified connection\n";
                     if ((*cs).state.GetState() == eState::LISTEN) {
                         unsigned char flags;
                         tcph.GetFlags(flags);
@@ -116,12 +119,16 @@ int main(int argc, char *argv[])
 
                             (cs->state).SetState(eState::SYN_RCVD);
                             cerr << "ACK packet sent\n";
+
+                            resp.type = STATUS;
+                            resp.connection = c;
+                            resp.bytes = 0;
+                            resp.error = EOK;
+                            MinetSend(sock, resp);
                             MinetSendToMonitor(MinetMonitoringEvent("SYN ACK SNET"));
                         }
                     }
 
-                } else {
-                    cerr << "INFO:  identified connection\n";
                 }
             }
             //  Data from the Sockets layer above  //
@@ -129,7 +136,43 @@ int main(int argc, char *argv[])
                 SockRequestResponse s;
                 MinetReceive(sock,s);
                 cerr << "Received Socket Request:" << s << endl;
+                SockRequestResponse resp;
 
+                switch (s.type) {
+                    case CONNECT: {
+
+                    }
+                    case ACCEPT: {
+                        auto cs = clist.FindMatching(s.connection);
+                        if (cs == clist.end()) {
+                            // TODO int seqnum sould be random
+                            TCPState tstate(1, LISTEN, 1000);
+                            // TODO may not be right
+                            tstate.N = 0;
+                            tstate.last_sent = 0;
+                            auto con = ConnectionToStateMapping<TCPState>(s.connection, Time(), tstate, false);
+                            clist.push_back(con);
+                        }
+                        resp.type = STATUS;
+                        resp.connection = s.connection;
+                        resp.bytes = 0;
+                        resp.error = EOK;
+                        MinetSend(sock, resp);
+                        MinetSendToMonitor(MinetMonitoringEvent("LISTEN CREATED"));
+                    }
+                    case WRITE: {
+
+                    }
+                    case FORWARD: {
+
+                    }
+                    case CLOSE: {
+
+                    }
+                    case STATUS: {
+
+                    }
+                }
             }
         }
     }
