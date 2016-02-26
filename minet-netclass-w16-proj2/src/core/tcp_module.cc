@@ -78,20 +78,32 @@ int main(int argc, char *argv[])
                 iph.GetProtocol(c.protocol);
                 tcph.GetDestPort(c.srcport);
                 tcph.GetSourcePort(c.destport);
+
                 auto cs = clist.FindMatching(c);
                 cerr << (*cs).state << '\n';
+                cerr << (*cs).connection << '\n';
 
                 if(cs == clist.end()) {
-                    // cerr << "ERROR: invalid connection detected!!!\n";
-                    // TODO how to identify a LISTEN connection ?
-                } else {
-                    SockRequestResponse resp;
-                    cerr << "INFO:  identified connection\n";
-                    if ((*cs).state.GetState() == eState::LISTEN) {
+                    cerr << "ERROR: invalid connection detected!!!\n";
+                    continue;
+                } 
+
+                
+                SockRequestResponse resp;
+                cerr << "INFO:  identified connection\n";
+
+                switch ((*cs).state.GetState())
+                {
+                    case eState::LISTEN:
+                        cout << "Passive open ...\n";
                         unsigned char flags;
                         tcph.GetFlags(flags);
-                        if (IS_SYN(flags)) {
-                            // sent SYN ACK back
+                        if (IS_SYN(flags) && !IS_ACK(flags)) { // TODO what if IS_RST
+
+
+                            // Build SYN Segment
+                            // TODO have a make package function later
+                            cout << "Build packet...\n";
                             Packet p;
                             IPHeader ih;
                             ih.SetProtocol(IP_PROTO_TCP);
@@ -100,25 +112,34 @@ int main(int argc, char *argv[])
                             ih.SetTotalLength(TCP_HEADER_BASE_LENGTH+IP_HEADER_BASE_LENGTH);
                             p.PushFrontHeader(ih);
                             // build tcp header
-
+                            cout << "TCP head...\n";
                             TCPHeader th;
-                            unsigned char f;
-                            SET_SYN(f);
-                            SET_ACK(f);
-                            th.SetFlags(f, p);
-                            // should be random
-                            th.SetSeqNum(0, p);
                             unsigned int seqnum;
-                            tcph.GetSeqNum(seqnum);
-                            th.SetAckNum(seqnum + 1, p);
+                            seqnum = 0xF0F0F0F0; // should be random later
+                            th.SetSeqNum(seqnum, p); 
+                            unsigned int acknum;
+                            tcph.GetSeqNum(acknum);
+                            th.SetAckNum(acknum + 1, p);
                             th.SetSourcePort(c.destport, p);
                             th.SetDestPort(c.srcport, p);
                             th.SetHeaderLen(TCP_HEADER_BASE_LENGTH, p);
+                            unsigned char f = 0;
+                            SET_SYN(f);
+                            SET_ACK(f);
+                            th.SetFlags(f, p);
+                            cout << "before push\n";
                             p.PushBackHeader(th);
+                            cout << "befor minet send... \n";
                             MinetSend(mux, p);
 
                             (cs->state).SetState(eState::SYN_RCVD);
-                            cerr << "ACK packet sent\n";
+                            cerr << "SYN ACK packet sent\n";
+
+                            // Create a new connection
+                            cout << "New connection...\n";
+                            auto nts = TCPState(seqnum, SYN_RCVD, 10);
+                            auto nc  = ConnectionToStateMapping<TCPState> (c, Time(), nts, false);
+                            clist.push_front(nc);
 
                             resp.type = STATUS;
                             resp.connection = c;
@@ -127,8 +148,7 @@ int main(int argc, char *argv[])
                             MinetSend(sock, resp);
                             MinetSendToMonitor(MinetMonitoringEvent("SYN ACK SNET"));
                         }
-                    }
-
+                        break;
                 }
             }
             //  Data from the Sockets layer above  //
@@ -146,19 +166,19 @@ int main(int argc, char *argv[])
                         auto cs = clist.FindMatching(s.connection);
                         if (cs == clist.end()) {
                             // TODO int seqnum sould be random
-                            TCPState tstate(1, LISTEN, 1000);
-                            // TODO may not be right
-                            tstate.N = 0;
-                            tstate.last_sent = 0;
-                            auto con = ConnectionToStateMapping<TCPState>(s.connection, Time(), tstate, false);
+                            // NJJ: Use a special initial pattern here for debugging,
+                            // it should be a 32-bit counter that increments by one every 4 microseconds
+                            TCPState tstate(0xAAAA5555, LISTEN, 1000); // TODO 1000?
+                            auto con = ConnectionToStateMapping<TCPState>(s.connection, Time(), tstate, false); // TODO false?
                             clist.push_back(con);
                         }
                         resp.type = STATUS;
-                        resp.connection = s.connection;
-                        resp.bytes = 0;
+                        // resp.connection = s.connection;
+                        // resp.bytes = 0;
                         resp.error = EOK;
                         MinetSend(sock, resp);
                         MinetSendToMonitor(MinetMonitoringEvent("LISTEN CREATED"));
+                        cerr << "Listen Created on connection: \n" << s.connection << "\n";
                     }
                     case WRITE: {
 
