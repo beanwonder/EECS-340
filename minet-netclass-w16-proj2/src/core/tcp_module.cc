@@ -21,6 +21,9 @@ using std::endl;
 using std::cerr;
 using std::string;
 
+int makePacket(Packet& p, Buffer& data, Connection& c, unsigned char flags, unsigned int segNum, unsigned int ackNum); 
+int timeoutHandler();
+
 int main(int argc, char *argv[])
 {
     MinetHandle mux, sock;
