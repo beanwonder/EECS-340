@@ -134,8 +134,9 @@ int main(int argc, char *argv[])
 
                             // Create a new connection
                             cout << "Createing new connection...\n";
-                            cout << ih << "\n";
-                            cout << th << "\n";
+                            cout << p << "\n";
+                            cout << (IPHeader)p.FindHeader(Headers::IPHeader) << "\n";
+                            cout << (TCPHeader)p.FindHeader(Headers::TCPHeader) << "\n";
                             auto nts = TCPState(seqnum, SYN_RCVD, 10);
                             auto nc  = ConnectionToStateMapping<TCPState> (c, Time(), nts, false);
                             clist.push_front(nc);
