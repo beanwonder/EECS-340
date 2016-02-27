@@ -56,10 +56,11 @@ int main(int argc, char *argv[])
           //  Data from the IP layer below  //
 
             if (event.handle==mux) {
+                cout << "\nEvent from mux received\n";
                 Packet p;
                 MinetReceive(mux,p);
                 unsigned tcphlen=TCPHeader::EstimateTCPHeaderLength(p);
-                cerr << "estimated header len=" << tcphlen << "\n";
+                cerr << "Estimated TCP header len=" << tcphlen << "\n";
                 p.ExtractHeaderFromPayload<TCPHeader>(tcphlen);
                 IPHeader iph = p.FindHeader(Headers::IPHeader);
                 TCPHeader tcph = p.FindHeader(Headers::TCPHeader);
@@ -80,8 +81,6 @@ int main(int argc, char *argv[])
                 tcph.GetSourcePort(c.destport);
 
                 auto cs = clist.FindMatching(c);
-                cerr << (*cs).state << '\n';
-                cerr << (*cs).connection << '\n';
 
                 if(cs == clist.end()) {
                     cerr << "ERROR: invalid connection detected!!!\n";
@@ -90,7 +89,8 @@ int main(int argc, char *argv[])
 
                 
                 SockRequestResponse resp;
-                cerr << "INFO:  identified connection\n";
+                cerr << tcph << "\n";
+                cerr << c << "\n";
 
                 switch ((*cs).state.GetState())
                 {
@@ -99,44 +99,43 @@ int main(int argc, char *argv[])
                         unsigned char flags;
                         tcph.GetFlags(flags);
                         if (IS_SYN(flags) && !IS_ACK(flags)) { // TODO what if IS_RST
-
-
                             // Build SYN Segment
                             // TODO have a make package function later
-                            cout << "Build packet...\n";
+                            cout << "Building response packet...\n";
                             Packet p;
                             IPHeader ih;
                             ih.SetProtocol(IP_PROTO_TCP);
-                            ih.SetSourceIP(c.dest);
-                            ih.SetDestIP(c.src);
-                            ih.SetTotalLength(TCP_HEADER_BASE_LENGTH+IP_HEADER_BASE_LENGTH);
+                            ih.SetSourceIP(c.src);
+                            ih.SetDestIP(c.dest);
+                            ih.SetTotalLength(TCP_HEADER_BASE_LENGTH + IP_HEADER_BASE_LENGTH);
+                            ih.SetID((unsigned short)rand());
                             p.PushFrontHeader(ih);
                             // build tcp header
-                            cout << "TCP head...\n";
                             TCPHeader th;
                             unsigned int seqnum;
-                            seqnum = 0xF0F0F0F0; // should be random later
+                            seqnum = 12345678; // should be random later
                             th.SetSeqNum(seqnum, p); 
                             unsigned int acknum;
                             tcph.GetSeqNum(acknum);
                             th.SetAckNum(acknum + 1, p);
-                            th.SetSourcePort(c.destport, p);
-                            th.SetDestPort(c.srcport, p);
-                            th.SetHeaderLen(TCP_HEADER_BASE_LENGTH, p);
+                            th.SetSourcePort(c.srcport, p);
+                            th.SetDestPort(c.destport, p);
+                            th.SetHeaderLen(TCP_HEADER_BASE_LENGTH / 4, p);
+                            th.SetWinSize(14600, p);
                             unsigned char f = 0;
                             SET_SYN(f);
                             SET_ACK(f);
                             th.SetFlags(f, p);
-                            cout << "before push\n";
                             p.PushBackHeader(th);
-                            cout << "befor minet send... \n";
                             MinetSend(mux, p);
 
                             (cs->state).SetState(eState::SYN_RCVD);
                             cerr << "SYN ACK packet sent\n";
 
                             // Create a new connection
-                            cout << "New connection...\n";
+                            cout << "Createing new connection...\n";
+                            cout << ih << "\n";
+                            cout << th << "\n";
                             auto nts = TCPState(seqnum, SYN_RCVD, 10);
                             auto nc  = ConnectionToStateMapping<TCPState> (c, Time(), nts, false);
                             clist.push_front(nc);
@@ -146,9 +145,14 @@ int main(int argc, char *argv[])
                             resp.bytes = 0;
                             resp.error = EOK;
                             MinetSend(sock, resp);
-                            MinetSendToMonitor(MinetMonitoringEvent("SYN ACK SNET"));
+                            MinetSendToMonitor(MinetMonitoringEvent("SYN ACK SENT"));
                         }
                         break;
+
+                    case eState::SYN_RCVD:
+                        {
+                            cout << "SYN_RCVD: \n";
+                        }
                 }
             }
             //  Data from the Sockets layer above  //
@@ -178,7 +182,7 @@ int main(int argc, char *argv[])
                         resp.error = EOK;
                         MinetSend(sock, resp);
                         MinetSendToMonitor(MinetMonitoringEvent("LISTEN CREATED"));
-                        cerr << "Listen Created on connection: \n" << s.connection << "\n";
+                        cerr << "Listening on connection: \n" << s.connection << "\n";
                     }
                     case WRITE: {
 
