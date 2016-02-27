@@ -25,7 +25,7 @@ using std::string;
 #define WIN_SIZE    1024
 
 int makePacket(Packet& p, Buffer& data, Connection& c, unsigned char flags,
-               unsigned int winSize, unsigned int segNum = 0, unsigned int ackNum = 0);
+               unsigned int winSize, unsigned int segNum, unsigned int ackNum = 0);
 
 int timeoutHandler();
 
@@ -142,12 +142,14 @@ int main(int argc, char *argv[])
                             Packet p;
                             Buffer data(NULL, 0);
                             unsigned char flags = 0;
+                            SET_SYN(flags);
+                            SET_ACK(flags);
                             unsigned int ack_num;
-                            // unsigned int seq_num;
+                            unsigned int seq_num = (unsigned int)rand();
                             tcph.GetSeqNum(ack_num);
                             ack_num += 1;
 
-                            makePacket(p, data, c, flags, 0, 0, ack_num);
+                            makePacket(p, data, c, flags, 0, seq_num, ack_num);
 
                             cerr << "SYN ACK packet sent\n";
 
@@ -156,7 +158,7 @@ int main(int argc, char *argv[])
                             cout << p << "\n";
                             cout << (IPHeader)p.FindHeader(Headers::IPHeader) << "\n";
                             cout << (TCPHeader)p.FindHeader(Headers::TCPHeader) << "\n";
-                            auto nts = TCPState(seqnum, SYN_RCVD, 10);
+                            auto nts = TCPState(seq_num, SYN_RCVD, 10);
                             auto nc  = ConnectionToStateMapping<TCPState> (c, Time(), nts, false);
                             clist.push_front(nc);
 
@@ -192,14 +194,15 @@ int main(int argc, char *argv[])
                             unsigned char f = 0;
                             SET_SYN(f);
                             Buffer b(NULL, 0);
-                            makePacket(p, b, s.connection, f, WIN_SIZE);
+                            unsigned int seqNum = (unsigned int) rand();
+                            makePacket(p, b, s.connection, f, WIN_SIZE, seqNum);
                             MinetSend(mux, p);
                             cout << "SYN packet sent\n";
 
                             // Create a closed connection
-                            TCPHeader th = (TCPHeader)p.FindHeader(Headers::TCPHeader);
-                            unsigned int seqNum;
-                            th.GetSeqNum(seqNum);
+                            // TCPHeader th = (TCPHeader)p.FindHeader(Headers::TCPHeader);
+                            // unsigned int seqNum;
+                            // th.GetSeqNum(seqNum);
                             TCPState  ts(seqNum, CLOSED, NUM_RETRIES);
                             auto con = ConnectionToStateMapping<TCPState>(s.connection, Time(), ts, false);
                             clist.push_front(con);
@@ -250,7 +253,7 @@ int main(int argc, char *argv[])
 
 int makePacket(Packet& p, Buffer& data, Connection& c,
                unsigned char flags, unsigned int win_size,
-               unsigned int seq_num = 0, unsigned int ack_num = 0)
+               unsigned int seq_num, unsigned int ack_num)
 {
 
     // TODO data ? how to use it
@@ -261,7 +264,7 @@ int makePacket(Packet& p, Buffer& data, Connection& c,
     // header
     // IP header
     //
-    IPheader iph();
+    IPHeader iph;
     iph.SetDestIP(c.src);
     iph.SetDestIP(c.dest);
     iph.SetProtocol(c.protocol);
@@ -269,13 +272,9 @@ int makePacket(Packet& p, Buffer& data, Connection& c,
     p.PushFrontHeader(iph);
     // TCPHeader
 
-    TCPheader tcph();
+    TCPHeader tcph;
     tcph.SetSourcePort(c.srcport, p);
     tcph.SetDestPort(c.destport, p);
-
-    if (seq_num == 0) {
-        seq_num = (unsigned int) rand();
-    }
 
     tcph.SetSeqNum(seq_num, p);
     tcph.SetAckNum(ack_num, p);
@@ -284,7 +283,8 @@ int makePacket(Packet& p, Buffer& data, Connection& c,
 
     tcph.SetFlags(flags, p);
     tcph.SetWinSize(win_size, p);
-    tcph.PushBackHeader(tcph);
+
+    p.PushBackHeader(tcph);
 
     return 0;
 }
