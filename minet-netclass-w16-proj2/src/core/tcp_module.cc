@@ -21,7 +21,7 @@ using std::endl;
 using std::cerr;
 using std::string;
 
-int makePacket(Packet& p, Buffer& data, Connection& c, unsigned char flags, unsigned int segNum, unsigned int ackNum); 
+int makePacket(Packet& p, Buffer& data, Connection& c, unsigned char flags, unsigned int segNum, unsigned int ackNum);
 int timeoutHandler();
 
 int main(int argc, char *argv[])
@@ -88,9 +88,9 @@ int main(int argc, char *argv[])
                 if(cs == clist.end()) {
                     cerr << "ERROR: invalid connection detected!!!\n";
                     continue;
-                } 
+                }
 
-                
+
                 SockRequestResponse resp;
                 cerr << tcph << "\n";
                 cerr << c << "\n";
@@ -102,6 +102,7 @@ int main(int argc, char *argv[])
                         unsigned char flags;
                         tcph.GetFlags(flags);
                         if (IS_SYN(flags) && !IS_ACK(flags)) { // TODO what if IS_RST
+                            /*
                             // Build SYN Segment
                             // TODO have a make package function later
                             cout << "Building response packet...\n";
@@ -117,7 +118,7 @@ int main(int argc, char *argv[])
                             TCPHeader th;
                             unsigned int seqnum;
                             seqnum = 12345678; // should be random later
-                            th.SetSeqNum(seqnum, p); 
+                            th.SetSeqNum(seqnum, p);
                             unsigned int acknum;
                             tcph.GetSeqNum(acknum);
                             th.SetAckNum(acknum + 1, p);
@@ -131,6 +132,16 @@ int main(int argc, char *argv[])
                             th.SetFlags(f, p);
                             p.PushBackHeader(th);
                             MinetSend(mux, p);
+                            */
+                            Packet p;
+                            Buffer data(NULL, 0);
+                            unsigned char flags = 0;
+                            unsigned int ack_num;
+                            // unsigned int seq_num;
+                            tcph.GetSeqNum(ack_num);
+                            ack_num += 1;
+
+                            makePacket(p, data, c, flags, 0, 0, ack_num);
 
                             (cs->state).SetState(eState::SYN_RCVD);
                             cerr << "SYN ACK packet sent\n";
@@ -204,5 +215,46 @@ int main(int argc, char *argv[])
             }
         }
     }
+    return 0;
+}
+
+int makePacket(Packet& p, Buffer& data, Connection& c,
+               unsigned char flags, unsigned int win_size,
+               unsigned int seq_num = 0, unsigned int ack_num = 0)
+{
+
+    // TODO data ? how to use it
+    unsigned int num_bytes = MAX_MACRO(IP_PACKET_MAX_LENGTH + TCP_HEADER_BASE_LENGTH, data.GetSize());
+    // Packet p(data.ExtractFront(num_bytes));
+    p = Packet(data.ExtractFront(num_bytes));
+
+    // header
+    // IP header
+    //
+    IPheader iph();
+    iph.SetDestIP(c.src);
+    iph.SetDestIP(c.dest);
+    iph.SetProtocol(c.protocol);
+    iph.SetTotalLength(IP_PACKET_MAX_LENGTH + TCP_HEADER_BASE_LENGTH + num_bytes);
+    p.PushFrontHeader(iph);
+    // TCPHeader
+
+    TCPheader tcph();
+    tcph.SetSourcePort(c.srcport, p);
+    tcph.SetDestPort(c.destport, p);
+
+    if (seq_num == 0) {
+        seq_num = (unsigned int) rand();
+    }
+
+    tcph.SetSeqNum(seq_num, p);
+    tcph.SetAckNum(ack_num, p);
+
+    tcph.SetHeaderLen(TCP_HEADER_BASE_LENGTH / 4, p);
+
+    tcph.SetFlags(flags, p);
+    tcph.SetWinSize(win_size, p);
+    tcph.PushBackHeader(tcph);
+
     return 0;
 }
