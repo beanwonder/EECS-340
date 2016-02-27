@@ -21,7 +21,11 @@ using std::endl;
 using std::cerr;
 using std::string;
 
-int makePacket(Packet& p, Buffer& data, Connection& c, unsigned char flags, unsigned int segNum, unsigned int ackNum); 
+#define NUM_RETRIES 3
+#define WIN_SIZE    1024
+
+int makePacket(Packet& p, Buffer& data, Connection& c, unsigned char flags,
+               unsigned int winSize, unsigned int segNum = 0, unsigned int ackNum = 0); 
 int timeoutHandler();
 
 int main(int argc, char *argv[])
@@ -98,6 +102,7 @@ int main(int argc, char *argv[])
                 switch ((*cs).state.GetState())
                 {
                     case eState::LISTEN:
+                    {
                         cout << "Passive open ...\n";
                         unsigned char flags;
                         tcph.GetFlags(flags);
@@ -124,15 +129,13 @@ int main(int argc, char *argv[])
                             th.SetSourcePort(c.srcport, p);
                             th.SetDestPort(c.destport, p);
                             th.SetHeaderLen(TCP_HEADER_BASE_LENGTH / 4, p);
-                            th.SetWinSize(14600, p);
+                            th.SetWinSize(WIN_SIZE, p);
                             unsigned char f = 0;
                             SET_SYN(f);
                             SET_ACK(f);
                             th.SetFlags(f, p);
                             p.PushBackHeader(th);
                             MinetSend(mux, p);
-
-                            (cs->state).SetState(eState::SYN_RCVD);
                             cerr << "SYN ACK packet sent\n";
 
                             // Create a new connection
@@ -152,11 +155,12 @@ int main(int argc, char *argv[])
                             MinetSendToMonitor(MinetMonitoringEvent("SYN ACK SENT"));
                         }
                         break;
+                    }
 
                     case eState::SYN_RCVD:
-                        {
-                            cout << "SYN_RCVD: \n";
-                        }
+                    {
+                        cout << "SYN_RCVD: \n";
+                    }
                 }
             }
             //  Data from the Sockets layer above  //
@@ -168,7 +172,27 @@ int main(int argc, char *argv[])
 
                 switch (s.type) {
                     case CONNECT: {
+                        auto cs = clist.FindMatching(s.connection);
+                        if (cs == clist.end()) {
+                            // Send the SYN packet
+                            Packet p;
+                            unsigned char f = 0;
+                            SET_SYN(f);
+                            Buffer b(NULL, 0);
+                            makePacket(p, b, s.connection, f, WIN_SIZE);
+                            MinetSend(mux, p);
+                            cout << "SYN packet sent\n";
 
+                            // Create a closed connection
+                            TCPHeader th = (TCPHeader)p.FindHeader(Headers::TCPHeader); 
+                            unsigned int seqNum;
+                            th.GetSeqNum(seqNum);
+                            TCPState  ts(seqNum, CLOSED, NUM_RETRIES);
+                            auto con = ConnectionToStateMapping<TCPState>(s.connection, Time(), ts, false);
+                            clist.push_front(con);
+                        } else {
+                            cerr << "[ERROR] CONNECT: Following connection is already in use:\n" << s.connection << "\n";
+                        }
                     }
                     case ACCEPT: {
                         auto cs = clist.FindMatching(s.connection);
@@ -176,10 +200,14 @@ int main(int argc, char *argv[])
                             // TODO int seqnum sould be random
                             // NJJ: Use a special initial pattern here for debugging,
                             // it should be a 32-bit counter that increments by one every 4 microseconds
-                            TCPState tstate(0xAAAA5555, LISTEN, 1000); // TODO 1000?
+                            TCPState tstate(0xAAAA5555, LISTEN, NUM_RETRIES); // TODO 1000?
                             auto con = ConnectionToStateMapping<TCPState>(s.connection, Time(), tstate, false); // TODO false?
                             clist.push_back(con);
+                        } else {
+                            cerr << "[ERROR] ACCEPT: Following connection is already in use:\n" << s.connection << "\n";
+                            continue;
                         }
+
                         resp.type = STATUS;
                         // resp.connection = s.connection;
                         // resp.bytes = 0;
