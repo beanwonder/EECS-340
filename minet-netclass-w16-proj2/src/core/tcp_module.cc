@@ -27,6 +27,8 @@ using std::string;
 int makePacket(Packet& p, Buffer& data, Connection& c, unsigned char flags,
                unsigned int winSize, unsigned int segNum, unsigned int ackNum = 0);
 
+void printPacket(Packet& p);
+
 int timeoutHandler();
 
 int main(int argc, char *argv[])
@@ -131,6 +133,7 @@ int main(int argc, char *argv[])
                                 cout << (IPHeader)p.FindHeader(Headers::IPHeader) << "\n";
                                 cout << (TCPHeader)p.FindHeader(Headers::TCPHeader) << "\n";
                                 auto nts = TCPState(seq_num, SYN_RCVD, 10);
+                                nts.SetLastRecvd(ack_num - 1);
                                 auto nc  = ConnectionToStateMapping<TCPState> (c, Time(), nts, false);
                                 clist.push_front(nc);
                                 MinetSendToMonitor(MinetMonitoringEvent("SYN ACK SENT"));
@@ -159,22 +162,51 @@ int main(int argc, char *argv[])
                             clist.erase(cs);
                             cout << "reset tcp connection to listen state\n";
                         } else {
-                            cerr << "SYN_RCVD: discard all other packet\nt";
+                            cerr << "SYN_RCVD: discard all other packet\n";
                         }
                         break;
                     }
 
                     case ESTABLISHED:
                     {
-                        cout << "@ ESTABLISHED: \n";
-                        unsigned char recv_flags;
-                        tcph.GetFlags(recv_flags);
+                        cout << "ESTABLISHED: \n";
+                        unsigned char flags;
+                        tcph.GetFlags(flags);
 
-                        if (IS_FIN(recv_flags)) {
-                            cs->state.SetState(CLOSE_WAIT);
-                            cout << "close wait \n";
-                        } else {
+                        if (IS_ACK(flags)) {
+                            unsigned int ack;
+                            tcph.GetAckNum(ack);
+                            // TODO data!
+                            if (ack > cs->state.GetLastAcked()) { // TODO waht about wrap around?
+                                cs->state.SetLastAcked(ack - 1);
+                            }
+                        }
+                        if (IS_FIN(flags)) {
+                            unsigned int seq;
+                            tcph.GetSeqNum(seq);
+                            if (seq == cs->state.GetLastRecvd() + 1) {
+                                Packet p;
+                                Buffer data(NULL, 0);
+                                unsigned char flags = 0; // the shadowning should not be a problem here
+                                SET_ACK(flags);
+                                makePacket(p, data, c, flags, WIN_SIZE, cs->state.GetLastSent() + 1, seq + 1); // TODO window size?
+                                // TODO send EOF to sock
+                                MinetSend(mux, p);
+                                printPacket(p);
+                                cs->state.SetLastRecvd(seq);
+                                cs->state.SetLastSent(cs->state.GetLastSent() + 1);
+                                cs->state.SetState(CLOSE_WAIT);
+                                cout << "ACK packet sent\n";
 
+                                // notify the sock that the connection is terminated safely
+                                //resp.type       = STATUS;
+                                //resp.connection = c;
+                                //resp.error      = EOK;
+                                //MinetSend(sock, resp);
+                            }
+                        }
+                        if (IS_SYN(flags) || IS_PSH(flags) || IS_URG(flags)) {
+                            cerr << "[ERROR] Invalid flags detected!\n";
                         }
                         break;
                     }
@@ -225,6 +257,43 @@ int main(int argc, char *argv[])
                         break;
                     }
 
+                    case CLOSE_WAIT:
+                    {
+                        cout << "CLOSE WAIT:\n";
+                        cout << "Should not be here\n";
+                        while (1 == 1) {
+                        }
+                        break;
+                    }
+                    
+                    case LAST_ACK:
+                    {
+                        cout << "LAST ACK: \n";
+                        unsigned char flags;
+                        tcph.GetFlags(flags);
+                        if (IS_ACK(flags)) {
+                            unsigned int seq;
+                            tcph.GetSeqNum(seq);
+                            if (seq == cs->state.GetLastRecvd() + 1) {
+                                unsigned int ack;
+                                tcph.GetAckNum(ack);
+                                if (ack > cs->state.GetLastSent()) {
+                                    cs->state.SetLastAcked(ack - 1);
+                                    cs->state.SetState(CLOSE);
+                                    clist.erase(cs);
+                                } else {
+                                    cerr << "[ERROR] ACK mismatch detected!\n";
+                                }
+                            } else {
+                                cout << "[ERROR] Discarding unordered pakcet...\n";
+                            }
+                        }
+                        if (!IS_ACK(flags) || IS_SYN(flags) || IS_FIN(flags) || IS_PSH(flags) || IS_URG(flags)) {
+                            cerr << "[ERROR] Invalid flags detected\n";
+                        }
+                        break;
+                    }
+
                     case FIN_WAIT1:
                     {
                         cout << "FIN_WAIT_1...\n";
@@ -233,8 +302,7 @@ int main(int argc, char *argv[])
                         if (IS_ACK(flags)) {
                             unsigned int seq;
                             tcph.GetSeqNum(seq);
-                            if (seq == cs->state.GetLastRecvd() ||
-                                seq == cs->state.GetLastRecvd() + 1) {
+                            if (seq == cs->state.GetLastRecvd() + 1) {
                                 unsigned int ack;
                                 tcph.GetAckNum(ack);
                                 if (ack > cs->state.GetLastSent()) {
@@ -255,8 +323,10 @@ int main(int argc, char *argv[])
                                 Buffer data(NULL, 0);
                                 unsigned char flags = 0; // the shadowning should not be a problem here
                                 SET_ACK(flags);
-                                makePacket(p, data, c, flags, WIN_SIZE, cs->state.GetLastAcked(), seq + 1); // TODO window size?
+                                makePacket(p, data, c, flags, WIN_SIZE, cs->state.GetLastSent() + 1, seq + 1); // TODO window size?
+                                MinetSend(mux, p);
                                 cs->state.SetLastRecvd(seq);
+                                cs->state.SetLastSent(cs->state.GetLastSent() + 1);
                                 cs->state.SetState(TIME_WAIT);
 
                                 // notify the sock that the connection is terminated safely
@@ -277,6 +347,13 @@ int main(int argc, char *argv[])
                         cout << "FIN_WAIT_2...\n";
                         unsigned char flags;
                         tcph.GetFlags(flags);
+                        if (IS_ACK(flags)) {
+                            unsigned int ack;
+                            tcph.GetAckNum(ack);
+                            if (ack > cs->state.GetLastAcked()) { // TODO waht about wrap around?
+                                cs->state.SetLastAcked(ack - 1);
+                            }
+                        }
                         if (IS_FIN(flags)) {
                             unsigned int seq; 
                             tcph.GetSeqNum(seq);
@@ -285,8 +362,10 @@ int main(int argc, char *argv[])
                                 Buffer data(NULL, 0);
                                 unsigned char flags = 0; // the shadowning should not be a problem here
                                 SET_ACK(flags);
-                                makePacket(p, data, c, flags, WIN_SIZE, cs->state.GetLastAcked(), seq + 1); // TODO window size?
+                                makePacket(p, data, c, flags, WIN_SIZE, cs->state.GetLastSent() + 1, seq + 1); // TODO window size?
+                                MinetSend(mux, p);
                                 cs->state.SetLastRecvd(seq);
+                                cs->state.SetLastSent(cs->state.GetLastSent() + 1);
                                 cs->state.SetState(TIME_WAIT);
 
                                 // notify the sock that the connection is terminated safely
@@ -296,13 +375,6 @@ int main(int argc, char *argv[])
                                 MinetSend(sock, resp);
                             } else {
                                 cerr << "[ERROR] Discarding unordered packets!\n";
-                            }
-                        }
-                        if (IS_ACK(flags)) {
-                            unsigned int ack;
-                            tcph.GetAckNum(ack);
-                            if (ack > cs->state.GetLastAcked()) { // TODO waht about wrap around?
-                                cs->state.SetLastAcked(ack);
                             }
                         }
                         if (!IS_FIN(flags) ||  IS_SYN(flags) || IS_URG(flags) || IS_PSH(flags)) {
@@ -492,4 +564,14 @@ int makePacket(Packet& p, Buffer& data, Connection& c,
 //    cerr << tcph;
 
     return 0;
+}
+
+void printPacket(Packet& p)
+{
+    cout << p << "\n";
+    TCPHeader th = (TCPHeader)p.FindHeader(Headers::TCPHeader);
+    IPHeader ih  = (IPHeader) p.FindHeader(Headers::IPHeader);
+    cout << th << "\n";
+    cout << ih << "\n";
+    return;
 }
