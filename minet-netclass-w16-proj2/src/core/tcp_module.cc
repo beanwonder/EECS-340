@@ -64,7 +64,7 @@ int main(int argc, char *argv[])
           //  Data from the IP layer below  //
 
             if (event.handle==mux) {
-                cout << "\nEvent from mux received\n";
+                cout << "Event from mux received\n";
                 Packet p;
                 MinetReceive(mux,p);
                 unsigned tcphlen=TCPHeader::EstimateTCPHeaderLength(p);
@@ -95,51 +95,20 @@ int main(int argc, char *argv[])
                     continue;
                 }
 
-
                 SockRequestResponse resp;
                 cerr << tcph << "\n";
                 cerr << c << "\n";
 
                 switch ((*cs).state.GetState())
                 {
-                    case eState::LISTEN:
+                    case LISTEN:
                     {
                         cout << "Passive open ...\n";
                         unsigned char flags;
                         tcph.GetFlags(flags);
                         if (IS_SYN(flags) && !IS_ACK(flags)) { // TODO what if IS_RST
-                            /*
                             // Build SYN Segment
-                            // TODO have a make package function later
-                            cout << "Building response packet...\n";
-                            Packet p;
-                            IPHeader ih;
-                            ih.SetProtocol(IP_PROTO_TCP);
-                            ih.SetSourceIP(c.src);
-                            ih.SetDestIP(c.dest);
-                            ih.SetTotalLength(TCP_HEADER_BASE_LENGTH + IP_HEADER_BASE_LENGTH);
-                            ih.SetID((unsigned short)rand());
-                            p.PushFrontHeader(ih);
-                            // build tcp header
-                            TCPHeader th;
-                            unsigned int seqnum;
-                            seqnum = 12345678; // should be random later
-                            th.SetSeqNum(seqnum, p);
-                            unsigned int acknum;
-                            tcph.GetSeqNum(acknum);
-                            th.SetAckNum(acknum + 1, p);
-                            th.SetSourcePort(c.srcport, p);
-                            th.SetDestPort(c.destport, p);
-                            th.SetHeaderLen(TCP_HEADER_BASE_LENGTH / 4, p);
-                            th.SetWinSize(WIN_SIZE, p);
-                            unsigned char f = 0;
-                            SET_SYN(f);
-                            SET_ACK(f);
-                            th.SetFlags(f, p);
-                            p.PushBackHeader(th);
-                            MinetSend(mux, p);
-                            */
-                            Packet p;
+                            //
                             Buffer data(NULL, 0);
                             unsigned char flags = 0;
                             SET_SYN(flags);
@@ -149,32 +118,63 @@ int main(int argc, char *argv[])
                             tcph.GetSeqNum(ack_num);
                             ack_num += 1;
 
-                            makePacket(p, data, c, flags, 0, seq_num, ack_num);
+                            makePacket(p, data, c, flags, WIN_SIZE, seq_num, ack_num);
 
-                            cerr << "SYN ACK packet sent\n";
+                            int send_status = MinetSend(mux, p);
 
-                            // Create a new connection
-                            cout << "Createing new connection...\n";
-                            cout << p << "\n";
-                            cout << (IPHeader)p.FindHeader(Headers::IPHeader) << "\n";
-                            cout << (TCPHeader)p.FindHeader(Headers::TCPHeader) << "\n";
-                            auto nts = TCPState(seq_num, SYN_RCVD, 10);
-                            auto nc  = ConnectionToStateMapping<TCPState> (c, Time(), nts, false);
-                            clist.push_front(nc);
+                            if (send_status == 0) {
+                                cerr << "SYN ACK packet sent\n";
 
-                            resp.type = STATUS;
-                            resp.connection = c;
-                            resp.bytes = 0;
-                            resp.error = EOK;
-                            MinetSend(sock, resp);
-                            MinetSendToMonitor(MinetMonitoringEvent("SYN ACK SENT"));
+                                // Create a new connection
+                                cout << "Createing new connection...\n";
+                                cout << p << "\n";
+                                cout << (IPHeader)p.FindHeader(Headers::IPHeader) << "\n";
+                                cout << (TCPHeader)p.FindHeader(Headers::TCPHeader) << "\n";
+                                auto nts = TCPState(seq_num, SYN_RCVD, 10);
+                                auto nc  = ConnectionToStateMapping<TCPState> (c, Time(), nts, false);
+                                clist.push_front(nc);
+                                MinetSendToMonitor(MinetMonitoringEvent("SYN ACK SENT"));
+                            } else {
+                                cerr << "SYN ACK SENT FIALED\n";
+                            }
+
+                            // do we need it?
+                            // resp.type = STATUS;
+                            // resp.connection = c;
+                            // resp.bytes = 0;
+                            // resp.error = EOK;
+                            // MinetSend(sock, resp);
                         }
                         break;
                     }
-
-                    case eState::SYN_RCVD:
+                    case SYN_RCVD:
                     {
                         cout << "SYN_RCVD: \n";
+                        unsigned char recv_flags;
+                        tcph.GetFlags(recv_flags);
+                        if (!IS_SYN(recv_flags) && IS_ACK(recv_flags)) {
+                            cout << "state SYN_RCVD -> ESTABLISHED \n";
+                            cs->state.SetState(ESTABLISHED);
+                        } else if (IS_RST(recv_flags)) {
+                            clist.erase(cs);
+                            cout << "reset tcp connection to listen state\n";
+                        } else {
+                            cerr << "SYN_RCVD: discard all other packet\nt";
+                        }
+                    }
+                    case ESTABLISHED:
+                    {
+                        cout << "@ ESTABLISHED: \n";
+                        unsigned char recv_flags;
+                        tcph.GetFlags(recv_flags);
+
+                        if (IS_FIN(recv_flags)) {
+                            cs->state.SetState(CLOSE_WAIT);
+                            cout << "close wait \n";
+                        } else {
+
+                        }
+
                     }
                 }
             }
@@ -196,16 +196,19 @@ int main(int argc, char *argv[])
                             Buffer b(NULL, 0);
                             unsigned int seqNum = (unsigned int) rand();
                             makePacket(p, b, s.connection, f, WIN_SIZE, seqNum);
-                            MinetSend(mux, p);
-                            cout << "SYN packet sent\n";
-
-                            // Create a closed connection
-                            // TCPHeader th = (TCPHeader)p.FindHeader(Headers::TCPHeader);
-                            // unsigned int seqNum;
-                            // th.GetSeqNum(seqNum);
-                            TCPState  ts(seqNum, CLOSED, NUM_RETRIES);
-                            auto con = ConnectionToStateMapping<TCPState>(s.connection, Time(), ts, false);
-                            clist.push_front(con);
+                            int send_status = MinetSend(mux, p);
+                            if (send_status == 0) {
+                                cout << "SYN packet sent\n";
+                                // Create a closed connection
+                                // TCPHeader th = (TCPHeader)p.FindHeader(Headers::TCPHeader);
+                                // unsigned int seqNum;
+                                // th.GetSeqNum(seqNum);
+                                TCPState  ts(seqNum, CLOSED, NUM_RETRIES);
+                                auto con = ConnectionToStateMapping<TCPState>(s.connection, Time(), ts, false);
+                                clist.push_front(con);
+                            } else {
+                                cerr << "[]ERROR] SYN Packet not send\n";
+                            }
                         } else {
                             cerr << "[ERROR] CONNECT: Following connection is already in use:\n" << s.connection << "\n";
                         }
@@ -231,15 +234,51 @@ int main(int argc, char *argv[])
                         MinetSend(sock, resp);
                         MinetSendToMonitor(MinetMonitoringEvent("LISTEN CREATED"));
                         cerr << "Listening on connection: \n" << s.connection << "\n";
+                        break;
                     }
                     case WRITE: {
 
+                        break;
                     }
                     case FORWARD: {
 
+                        break;
                     }
                     case CLOSE: {
+                        auto cs = clist.FindMatching(s.connection);
+                        if (cs != clist.end()) {
+                            //
+                            if (cs->state.GetState() == CLOSE_WAIT) {
+                                // send FIN and go to LAST_ACK
+                                Packet p;
+                                Buffer data(NULL, 0);
+                                unsigned char flags = 0;
+                                SET_FIN(flags);
+                                SET_ACK(flags);
+                                makePacket(p, data, s.connection, flags,
+                                           WIN_SIZE, cs->state.GetLastSent(),
+                                           cs->state.GetLastAcked());
+                                int sent_status = MinetSend(mux, p);
+                                if (sent_status == 0) {
+                                    cs->state.SetState(LAST_ACK);
+                                } else {
+                                    cerr << "[ERROR] FIN ACK not sent\n";
+                                }
+                            } else if (cs->state.GetState() == SYN_RCVD
+                                       || cs->state.GetState() == ESTABLISHED) {
 
+                            } else if (cs->state.GetState() == SYN_SENT) {
+
+                            }
+
+                        } else {
+                            cerr << "[ERROR] CLOSE: noting to close";
+                            resp.type = STATUS;
+                            // should be a error code
+                            resp.error = ENOMATCH;
+                            MinetSend(sock, resp);
+                        }
+                        break;
                     }
                     case STATUS: {
 
@@ -257,15 +296,16 @@ int makePacket(Packet& p, Buffer& data, Connection& c,
 {
 
     // TODO data ? how to use it
-    unsigned int num_bytes = MAX_MACRO(IP_PACKET_MAX_LENGTH + TCP_HEADER_BASE_LENGTH, data.GetSize());
+    // unsigned int num_bytes = MIN_MACRO(IP_PACKET_MAX_LENGTH - IP_BASE_LENGTH, data.GetSize());
+    unsigned int num_bytes = data.GetSize();
     // Packet p(data.ExtractFront(num_bytes));
-    p = Packet(data.ExtractFront(num_bytes));
+    p = Packet(data);
 
     // header
     // IP header
     //
     IPHeader iph;
-    iph.SetDestIP(c.src);
+    iph.SetSourceIP(c.src);
     iph.SetDestIP(c.dest);
     iph.SetProtocol(c.protocol);
     iph.SetTotalLength(IP_PACKET_MAX_LENGTH + TCP_HEADER_BASE_LENGTH + num_bytes);
@@ -285,6 +325,9 @@ int makePacket(Packet& p, Buffer& data, Connection& c,
     tcph.SetWinSize(win_size, p);
 
     p.PushBackHeader(tcph);
+
+    cerr << iph;
+    cerr << tcph;
 
     return 0;
 }
