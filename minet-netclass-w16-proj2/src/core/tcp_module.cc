@@ -22,7 +22,7 @@ using std::cerr;
 using std::string;
 
 #define NUM_RETRIES 3
-#define WIN_SIZE    1024
+#define WIN_SIZE    1 // limited by the size of N in TCPState
 
 int makePacket(Packet& p, Buffer& data, Connection& c, unsigned char flags,
                unsigned int winSize, unsigned int segNum, unsigned int ackNum = 0);
@@ -64,7 +64,7 @@ int main(int argc, char *argv[])
           //  Data from the IP layer below  //
 
             if (event.handle==mux) {
-                cout << "Event from mux received\n";
+                cout << "\nEvent from mux received\n";
                 Packet p;
                 MinetReceive(mux,p);
                 unsigned tcphlen=TCPHeader::EstimateTCPHeaderLength(p);
@@ -108,7 +108,7 @@ int main(int argc, char *argv[])
                         tcph.GetFlags(flags);
                         if (IS_SYN(flags) && !IS_ACK(flags)) { // TODO what if IS_RST
                             // Build SYN Segment
-                            //
+                            Packet p;
                             Buffer data(NULL, 0);
                             unsigned char flags = 0;
                             SET_SYN(flags);
@@ -174,7 +174,47 @@ int main(int argc, char *argv[])
                         } else {
 
                         }
+                        break;
+                    }
+                    case eState::SYN_SENT:
+                    {
+                        cout << "Active open ack...\n";
+                        unsigned char flags;
+                        tcph.GetFlags(flags);
+                        if(IS_SYN(flags) && IS_ACK(flags)) {
+                            // implementment ack piggybacked on data segment later
+                            Packet p;
+                            Buffer data(NULL, 0);
+                            unsigned char flags = 0;
+                            SET_ACK(flags);
+                            unsigned int recSeqNum;
+                            tcph.GetSeqNum(recSeqNum);
+                            unsigned int recAckNum;
+                            tcph.GetAckNum(recAckNum);
+                            TCPState &ts = (*cs).state;
 
+                            // Sanity Check
+                            if (recAckNum != ts.last_acked + 1) {
+                                cerr << "[ERROR] invalid ack number received: " << recAckNum << "\n";
+                                cerr << "        expecting: " << ts.last_acked + 1 << "\n";
+                                continue;
+                            }
+
+                            // Update TCP State
+                            ts.last_recvd = recSeqNum; // + data size
+
+                            makePacket(p, data, c, flags, WIN_SIZE, ts.last_sent, recSeqNum + 1);
+                            MinetSend(mux, p);
+                            cout << "SYN ACK pakcet sent\n";
+
+                            // Update connection state
+                            (*cs).state.SetState(ESTABLISHED);
+
+                        } else {
+                            cerr << "[ERROR] Invalud flags: " << flags << "\n";
+                            continue;
+                        }
+                        break;
                     }
                 }
             }
@@ -186,7 +226,8 @@ int main(int argc, char *argv[])
                 SockRequestResponse resp;
 
                 switch (s.type) {
-                    case CONNECT: {
+                    case CONNECT:
+                    {
                         auto cs = clist.FindMatching(s.connection);
                         if (cs == clist.end()) {
                             // Send the SYN packet
@@ -196,6 +237,7 @@ int main(int argc, char *argv[])
                             Buffer b(NULL, 0);
                             unsigned int seqNum = (unsigned int) rand();
                             makePacket(p, b, s.connection, f, WIN_SIZE, seqNum);
+
                             int send_status = MinetSend(mux, p);
                             if (send_status == 0) {
                                 cout << "SYN packet sent\n";
@@ -212,7 +254,9 @@ int main(int argc, char *argv[])
                         } else {
                             cerr << "[ERROR] CONNECT: Following connection is already in use:\n" << s.connection << "\n";
                         }
+                        break;
                     }
+
                     case ACCEPT: {
                         auto cs = clist.FindMatching(s.connection);
                         if (cs == clist.end()) {
@@ -295,39 +339,35 @@ int makePacket(Packet& p, Buffer& data, Connection& c,
                unsigned int seq_num, unsigned int ack_num)
 {
 
-    // TODO data ? how to use it
-    // unsigned int num_bytes = MIN_MACRO(IP_PACKET_MAX_LENGTH - IP_BASE_LENGTH, data.GetSize());
+    // TODO
     unsigned int num_bytes = data.GetSize();
-    // Packet p(data.ExtractFront(num_bytes));
-    p = Packet(data);
+    p = Packet(data.ExtractFront(num_bytes));
+    cout << c << "\n";
 
     // header
     // IP header
-    //
-    IPHeader iph;
-    iph.SetSourceIP(c.src);
-    iph.SetDestIP(c.dest);
-    iph.SetProtocol(c.protocol);
-    iph.SetTotalLength(IP_PACKET_MAX_LENGTH + TCP_HEADER_BASE_LENGTH + num_bytes);
-    p.PushFrontHeader(iph);
-    // TCPHeader
 
+    IPHeader iph;
+    iph.SetDestIP(c.dest);
+    iph.SetSourceIP(c.src);
+    iph.SetProtocol(c.protocol);
+    iph.SetTotalLength(IP_HEADER_BASE_LENGTH + TCP_HEADER_BASE_LENGTH + num_bytes);
+    iph.SetID((unsigned short)rand());
+    p.PushFrontHeader(iph);
+
+    // TCPHeader
     TCPHeader tcph;
     tcph.SetSourcePort(c.srcport, p);
     tcph.SetDestPort(c.destport, p);
-
     tcph.SetSeqNum(seq_num, p);
     tcph.SetAckNum(ack_num, p);
-
     tcph.SetHeaderLen(TCP_HEADER_BASE_LENGTH / 4, p);
-
-    tcph.SetFlags(flags, p);
     tcph.SetWinSize(win_size, p);
-
+    tcph.SetFlags(flags, p);
     p.PushBackHeader(tcph);
 
-    cerr << iph;
-    cerr << tcph;
+//    cerr << iph;
+//    cerr << tcph;
 
     return 0;
 }
