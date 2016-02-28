@@ -99,7 +99,7 @@ int main(int argc, char *argv[])
                 cerr << tcph << "\n";
                 cerr << c << "\n";
 
-                switch ((*cs).state.GetState())
+                switch (cs->state.GetState())
                 {
                     case LISTEN:
                     {
@@ -161,7 +161,9 @@ int main(int argc, char *argv[])
                         } else {
                             cerr << "SYN_RCVD: discard all other packet\nt";
                         }
+                        break;
                     }
+
                     case ESTABLISHED:
                     {
                         cout << "@ ESTABLISHED: \n";
@@ -176,7 +178,8 @@ int main(int argc, char *argv[])
                         }
                         break;
                     }
-                    case eState::SYN_SENT:
+
+                    case SYN_SENT:
                     {
                         cout << "Active open ack...\n";
                         unsigned char flags;
@@ -208,12 +211,110 @@ int main(int argc, char *argv[])
                             cout << "SYN ACK pakcet sent\n";
 
                             // Update connection state
-                            (*cs).state.SetState(ESTABLISHED);
+                            cs->state.SetState(ESTABLISHED);
+
+                            // Sent respond to sock
+                            resp.type       = WRITE;
+                            resp.connection = c;
+                            MinetSend(sock, resp);
 
                         } else {
                             cerr << "[ERROR] Invalud flags: " << flags << "\n";
                             continue;
                         }
+                        break;
+                    }
+
+                    case FIN_WAIT1:
+                    {
+                        cout << "FIN_WAIT_1...\n";
+                        unsigned char flags;
+                        tcph.GetFlags(flags);
+                        if (IS_ACK(flags)) {
+                            unsigned int seq;
+                            tcph.GetSeqNum(seq);
+                            if (seq == cs->state.GetLastRecvd() ||
+                                seq == cs->state.GetLastRecvd() + 1) {
+                                unsigned int ack;
+                                tcph.GetAckNum(ack);
+                                if (ack > cs->state.GetLastSent()) {
+                                    cs->state.SetLastAcked(ack - 1);
+                                    cs->state.SetState(FIN_WAIT2);
+                                } else {
+                                    cerr << "[ERROR] ACK mismatch detected!\n";
+                                }
+                            } else {
+                                cout << "[ERROR] Discarding unordered pakcet...\n";
+                            }
+                        }
+                        if (IS_FIN(flags)) {
+                            unsigned int seq;
+                            tcph.GetSeqNum(seq);
+                            if (seq == cs->state.GetLastRecvd() + 1) {
+                                Packet p;
+                                Buffer data(NULL, 0);
+                                unsigned char flags = 0; // the shadowning should not be a problem here
+                                SET_ACK(flags);
+                                makePacket(p, data, c, flags, WIN_SIZE, cs->state.GetLastAcked(), seq + 1); // TODO window size?
+                                cs->state.SetLastRecvd(seq);
+                                cs->state.SetState(TIME_WAIT);
+
+                                // notify the sock that the connection is terminated safely
+                                resp.type       = STATUS;
+                                resp.connection = c;
+                                resp.error      = EOK;
+                                MinetSend(sock, resp);
+                            }
+                        }
+                        if (!IS_ACK(flags) || IS_SYN(flags) || IS_PSH(flags) || IS_URG(flags)) {
+                            cerr << "[ERROR] Invalid flags detected!\n";
+                        }
+                        break;
+                    }
+
+                    case FIN_WAIT2:
+                    {
+                        cout << "FIN_WAIT_2...\n";
+                        unsigned char flags;
+                        tcph.GetFlags(flags);
+                        if (IS_FIN(flags)) {
+                            unsigned int seq; 
+                            tcph.GetSeqNum(seq);
+                            if (seq == cs->state.GetLastRecvd() + 1) {
+                                Packet p;
+                                Buffer data(NULL, 0);
+                                unsigned char flags = 0; // the shadowning should not be a problem here
+                                SET_ACK(flags);
+                                makePacket(p, data, c, flags, WIN_SIZE, cs->state.GetLastAcked(), seq + 1); // TODO window size?
+                                cs->state.SetLastRecvd(seq);
+                                cs->state.SetState(TIME_WAIT);
+
+                                // notify the sock that the connection is terminated safely
+                                resp.type       = STATUS;
+                                resp.connection = c;
+                                resp.error      = EOK;
+                                MinetSend(sock, resp);
+                            } else {
+                                cerr << "[ERROR] Discarding unordered packets!\n";
+                            }
+                        }
+                        if (IS_ACK(flags)) {
+                            unsigned int ack;
+                            tcph.GetAckNum(ack);
+                            if (ack > cs->state.GetLastAcked()) { // TODO waht about wrap around?
+                                cs->state.SetLastAcked(ack);
+                            }
+                        }
+                        if (!IS_FIN(flags) ||  IS_SYN(flags) || IS_URG(flags) || IS_PSH(flags)) {
+                            cerr << "[ERROR] Invaid flags detected\n";
+                        }
+                        break;
+                    }
+
+                    case TIME_WAIT:
+                    {
+                        cout << "Time Wait...\n";
+                        cout << "Discarding this packet...\n";
                         break;
                     }
                 }
@@ -241,11 +342,7 @@ int main(int argc, char *argv[])
                             int send_status = MinetSend(mux, p);
                             if (send_status == 0) {
                                 cout << "SYN packet sent\n";
-                                // Create a closed connection
-                                // TCPHeader th = (TCPHeader)p.FindHeader(Headers::TCPHeader);
-                                // unsigned int seqNum;
-                                // th.GetSeqNum(seqNum);
-                                TCPState  ts(seqNum, CLOSED, NUM_RETRIES);
+                                TCPState ts(seqNum, SYN_SENT, NUM_RETRIES);
                                 auto con = ConnectionToStateMapping<TCPState>(s.connection, Time(), ts, false);
                                 clist.push_front(con);
                             } else {
@@ -293,27 +390,52 @@ int main(int argc, char *argv[])
                         if (cs != clist.end()) {
                             //
                             if (cs->state.GetState() == CLOSE_WAIT) {
+                                cout << "Passive close...\n";
                                 // send FIN and go to LAST_ACK
                                 Packet p;
                                 Buffer data(NULL, 0);
                                 unsigned char flags = 0;
                                 SET_FIN(flags);
-                                SET_ACK(flags);
+                                unsigned int seqNum = cs->state.GetLastSent() + 1;
                                 makePacket(p, data, s.connection, flags,
-                                           WIN_SIZE, cs->state.GetLastSent(),
+                                           cs->state.GetN(), seqNum,
                                            cs->state.GetLastAcked());
                                 int sent_status = MinetSend(mux, p);
                                 if (sent_status == 0) {
+                                    cs->state.SetLastSent(seqNum);
                                     cs->state.SetState(LAST_ACK);
                                 } else {
-                                    cerr << "[ERROR] FIN ACK not sent\n";
+                                    cerr << "[ERROR] FIN not sent\n";
+                                    continue;
                                 }
                             } else if (cs->state.GetState() == SYN_RCVD
                                        || cs->state.GetState() == ESTABLISHED) {
+                                cout << "Active close...\n";
+                                // send FIN and go to FIN_WAIT_1
+                                Packet p;
+                                Buffer data(NULL, 0);
+                                unsigned char flags = 0;
+                                SET_FIN(flags);
+                                unsigned int seqNum = cs->state.GetLastSent() + 1;
+                                makePacket(p, data, s.connection, flags,
+                                           cs->state.GetN(), seqNum,
+                                           cs->state.GetLastAcked());
+                                int sent_status = MinetSend(mux, p);
+                                if (sent_status == 0) {
+                                    cs->state.SetLastSent(seqNum);
+                                    cs->state.SetState(FIN_WAIT1);
+                                } else {
+                                    cerr << "[ERROR] FIN not sent\n";
+                                    continue;
+                                }
 
                             } else if (cs->state.GetState() == SYN_SENT) {
 
                             }
+                            resp.type = STATUS;
+                            resp.error = EOK;
+                            MinetSend(sock, resp);
+                            cout << "OK response sent to sock\n";
 
                         } else {
                             cerr << "[ERROR] CLOSE: noting to close";
