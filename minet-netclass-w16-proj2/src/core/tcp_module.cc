@@ -135,6 +135,13 @@ int main(int argc, char *argv[])
                                 auto nc  = ConnectionToStateMapping<TCPState> (c, Time(), nts, false);
                                 clist.push_front(nc);
                                 MinetSendToMonitor(MinetMonitoringEvent("SYN ACK SENT"));
+
+                                SockRequestResponse repl;
+                                repl.type = WRITE;
+                                repl.bytes = 0;
+                                // repl.data = ?
+                                MinetSend(sock, repl);
+
                             } else {
                                 cerr << "SYN ACK SENT FIALED\n";
                             }
@@ -172,11 +179,54 @@ int main(int argc, char *argv[])
                         tcph.GetFlags(flags);
 
                         if (IS_ACK(flags)) {
-                            unsigned int ack;
-                            tcph.GetAckNum(ack);
-                            // TODO data!
-                            if (ack > cs->state.GetLastAcked()) { // TODO waht about wrap around?
-                                cs->state.SetLastAcked(ack - 1);
+                            unsigned int recvd_ack;
+                            unsigned int recvd_seq;
+                            Buffer recvd_data = p.GetPayload();
+
+                            tcph.GetAckNum(recvd_ack);
+                            tcph.GetSeqNum(recvd_seq);
+
+                            // cs->state.SetLastAcked = recvd_ack - 1;
+
+                            // Dealing with acks
+                            if (recvd_ack > cs->state.GetLastAcked() + 1) {
+                                cs->state.SendBuffer.Erase(0, recvd_ack - cs->state.GetLastAcked() - 1);
+                                cs->state.SetLastAcked(recvd_ack - 1);
+                            }
+
+                            // Dealing with data
+                            if (recvd_data.GetSize() > 0 && recvd_seq == cs->state.GetLastRecvd() + 1) {
+                                if (cs->state.RecvBuffer.GetSize() + recvd_data.GetSize() <= cs->state.TCP_BUFFER_SIZE) {
+                                    cs->state.RecvBuffer.AddBack(recvd_data);
+
+                                    cs->state.SetLastRecvd(cs->state.GetLastRecvd() + recvd_data.GetSize());
+                                    // send ack back;
+                                    Packet p;
+                                    unsigned char f = 0;
+                                    SET_ACK(f);
+                                    Buffer b(NULL, 0);
+                                    makePacket(p, b, c, f, cs->state.GetN(),
+                                               cs->state.GetLastSent()+1, cs->state.GetLastRecvd()+1);
+                                    cs->state.SetLastSent(cs->state.GetLastSent() + 1);
+                                    int sent_status = MinetSend(mux, p);
+
+                                    // send to sock
+                                    if (sent_status == 0) {
+                                        SockRequestResponse repl;
+                                        repl.type  = WRITE;
+                                        repl.bytes = recvd_data.GetSize();
+                                        repl.data  = cs->state.RecvBuffer;
+
+                                        MinetSend(sock, repl);
+                                    }
+                                }
+                            } else {
+                                // discard packet data
+                            }
+
+                            if (recvd_ack > cs->state.GetLastAcked()) { // TODO waht about wrap around?
+                                cs->state.SetLastAcked(recvd_ack - 1);
+
                             }
                         }
                         if (IS_FIN(flags)) {
@@ -197,14 +247,18 @@ int main(int argc, char *argv[])
                                 cout << "ACK packet sent\n";
 
                                 // notify the sock that the connection is terminated safely
-                                //resp.type       = STATUS;
-                                //resp.connection = c;
-                                //resp.error      = EOK;
-                                //MinetSend(sock, resp);
+                                resp.type       = STATUS;
+                                resp.bytes      = 0;
+                                // TODO ???? what to do with resp data
+                                resp.data       = cs->state.RecvBuffer;
+                                resp.connection = c;
+                                resp.error      = EOK;
+                                MinetSend(sock, resp);
                             }
                         }
                         if (IS_SYN(flags) || IS_PSH(flags) || IS_URG(flags)) {
                             cerr << "[ERROR] Invalid flags detected!\n";
+
                         }
                         break;
                     }
@@ -246,6 +300,7 @@ int main(int argc, char *argv[])
                             // Sent respond to sock
                             resp.type       = STATUS;
                             resp.connection = c;
+                            resp.bytes      = 0;
                             resp.error      = EOK;
                             MinetSend(sock, resp);
 
@@ -262,7 +317,7 @@ int main(int argc, char *argv[])
                         cout << "Should not be here\n";
                         break;
                     }
-                    
+
                     case LAST_ACK:
                     {
                         cout << "LAST ACK: \n";
@@ -352,7 +407,7 @@ int main(int argc, char *argv[])
                             }
                         }
                         if (IS_FIN(flags)) {
-                            unsigned int seq; 
+                            unsigned int seq;
                             tcph.GetSeqNum(seq);
                             if (seq == cs->state.GetLastRecvd() + 1) {
                                 Packet p;
@@ -447,10 +502,10 @@ int main(int argc, char *argv[])
                         break;
                     }
                     case WRITE: {
-
                         break;
                     }
                     case FORWARD: {
+                        // ignore do nothing
                         break;
                     }
                     case CLOSE: {
@@ -498,7 +553,8 @@ int main(int argc, char *argv[])
                                 }
 
                             } else if (cs->state.GetState() == SYN_SENT) {
-
+                                cout << "SYN_SNET -> CLOSE by appl\n";
+                                clist.erase(cs);
                             }
                             resp.type = STATUS;
                             resp.error = EOK;
