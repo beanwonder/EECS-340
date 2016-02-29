@@ -22,12 +22,13 @@ using std::cerr;
 using std::string;
 
 #define NUM_RETRIES 3
-#define WIN_SIZE    1 // limited by the size of N in TCPState
+#define WIN_SIZE    14600 // limited by the size of N in TCPState
 
 int makePacket(Packet& p, Buffer& data, Connection& c, unsigned char flags,
                unsigned int winSize, unsigned int segNum, unsigned int ackNum = 0);
 
 void printPacket(Packet& p);
+void deadloop();
 
 int timeoutHandler();
 
@@ -69,13 +70,13 @@ int main(int argc, char *argv[])
                 cout << "\nEvent from mux received\n";
                 Packet p;
                 MinetReceive(mux,p);
-                printPacket(p);
                 unsigned tcphlen=TCPHeader::EstimateTCPHeaderLength(p);
                 //cerr << "Estimated TCP header len=" << tcphlen << "\n";
                 p.ExtractHeaderFromPayload<TCPHeader>(tcphlen);
                 IPHeader iph = p.FindHeader(Headers::IPHeader);
                 TCPHeader tcph = p.FindHeader(Headers::TCPHeader);
                 Connection c;
+                printPacket(p);
 
                 if (!tcph.IsCorrectChecksum(p)) {
                     cerr << "[ERROR] Checksum check FAILED!!!\n";
@@ -181,7 +182,17 @@ int main(int argc, char *argv[])
                         if (IS_ACK(flags)) {
                             unsigned int recvd_ack;
                             unsigned int recvd_seq;
-                            Buffer recvd_data = p.GetPayload();
+                            
+                            unsigned short len; // extracted data len
+                            unsigned char iphlen; 
+                           
+                            iph.GetHeaderLength(iphlen);
+                            iph.GetTotalLength(len);
+                            len -= (iphlen * 4 + tcphlen);
+                            Buffer &recvd_data = p.GetPayload().ExtractFront(len);
+
+                            cout << "recvd_data\n";
+                            cout << recvd_data << "\n";
 
                             tcph.GetAckNum(recvd_ack);
                             tcph.GetSeqNum(recvd_seq);
@@ -205,10 +216,14 @@ int main(int argc, char *argv[])
                                     unsigned char f = 0;
                                     SET_ACK(f);
                                     Buffer b(NULL, 0);
-                                    makePacket(p, b, c, f, cs->state.GetN(),
-                                               cs->state.GetLastSent()+1, cs->state.GetLastRecvd()+1);
-                                    cs->state.SetLastSent(cs->state.GetLastSent() + 1);
+                                    makePacket(p, b, c, f, WIN_SIZE,
+                                               cs->state.GetLastSent() + 1, cs->state.GetLastRecvd() + 1);
+                                    cs->state.SetLastSent(cs->state.GetLastSent() + recvd_data.GetSize());
                                     int sent_status = MinetSend(mux, p);
+                                    if (sent_status == 0) {
+                                        cout << "ACK sent\n";
+                                        printPacket(p);
+                                    }
 
                                     // send to sock
                                     if (sent_status == 0) {
@@ -223,15 +238,12 @@ int main(int argc, char *argv[])
                             } else {
                                 // discard packet data
                             }
-
-                            if (recvd_ack > cs->state.GetLastAcked()) { // TODO waht about wrap around?
-                                cs->state.SetLastAcked(recvd_ack - 1);
-
-                            }
                         }
                         if (IS_FIN(flags)) {
                             unsigned int seq;
                             tcph.GetSeqNum(seq);
+                            
+                            
                             if (seq == cs->state.GetLastRecvd() + 1) {
                                 Packet p;
                                 Buffer data(NULL, 0);
@@ -258,7 +270,6 @@ int main(int argc, char *argv[])
                         }
                         if (IS_SYN(flags) || IS_PSH(flags) || IS_URG(flags)) {
                             cerr << "[ERROR] Invalid flags detected!\n";
-
                         }
                         break;
                     }
@@ -501,7 +512,60 @@ int main(int argc, char *argv[])
                         cerr << "Listening on connection: \n" << s.connection << "\n";
                         break;
                     }
-                    case WRITE: {
+                    case WRITE: 
+                    {
+                        auto cs = clist.FindMatching(s.connection);
+                        if (cs != clist.end() && cs->state.GetState() == ESTABLISHED) {
+                            // not go back N
+                            if (cs->state.GetLastSent() == cs->state.GetLastAcked()) {
+                                if (cs->state.SendBuffer.GetSize() != 0) {
+                                    cout << "[ERROR] Send buffer error\n";
+                                    deadloop();
+                                }
+
+                                if (cs->state.SendBuffer.GetSize() + s.bytes <=
+                                    cs->state.TCP_BUFFER_SIZE) {
+                                    cs->state.SendBuffer.AddBack(s.data);
+                                } else {
+                                    // TODO split the large packet later
+                                    cout << "[ERROR] Send packet too large!\n";
+                                    deadloop();
+                                }
+
+                                Packet p;
+                                unsigned char flags = 0;
+                                makePacket(p, cs->state.SendBuffer, s.connection, flags, 
+                                           WIN_SIZE, cs->state.GetLastSent() + 1, cs->state.GetLastAcked());
+                                int send_status = MinetSend(mux, p);
+                                if (send_status == 0) {
+                                    cs->state.SetLastSent(cs->state.GetLastSent() + s.bytes);
+                                    
+                                    SockRequestResponse resp;
+                                    resp.type       = STATUS;
+                                    resp.connection = s.connection;
+                                    resp.bytes      = s.bytes;
+                                    resp.error      = EOK;
+                                    MinetSend(sock, resp);
+                                } else {
+                                    cout << "[ERROR] Send Data Packet Failed!\n";
+                                    SockRequestResponse resp;
+                                    resp.type       = STATUS;
+                                    resp.connection = s.connection;
+                                    resp.bytes      = 0;
+                                    resp.error      = EBUF_SPACE;
+                                    MinetSend(sock, resp);
+                                }
+                            } else {
+                            }
+                        } else {
+                                cout << "[ERROR] WRITE: Unmatched connection\n";
+                                SockRequestResponse resp;
+                                resp.type       = STATUS;
+                                resp.connection = s.connection;
+                                resp.bytes      = 0;
+                                resp.error      = ENOMATCH;
+                                MinetSend(sock, resp);
+                        }
                         break;
                     }
                     case FORWARD: {
@@ -626,4 +690,9 @@ void printPacket(Packet& p)
     cout << th << "\n";
     cout << ih << "\n";
     return;
+}
+
+void deadloop()
+{
+    while(1) {};
 }
