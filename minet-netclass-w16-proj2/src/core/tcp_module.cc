@@ -23,14 +23,16 @@ using std::string;
 
 #define NUM_RETRIES 3
 #define WIN_SIZE    14600 // limited by the size of N in TCPState
+#define TIMEOUT_THD 2     // 2 second timeout threshold
+#define TIMEOUT_CLK 0.1   // 0.1 second timeout clock
 
 int makePacket(Packet& p, Buffer& data, Connection& c, unsigned char flags,
                unsigned int winSize, unsigned int segNum, unsigned int ackNum = 0);
 
 void printPacket(Packet& p);
 void deadloop();
-
-int timeoutHandler();
+void handleTimeout(ConnectionList<TCPState>::iterator &cs, MinetHandle &mux, MinetHandle &sock);
+void handleExpireTimerTries(ConnectionList<TCPState>::iterator &cs, MinetHandle &mux, MinetHandle &sock);
 
 int main(int argc, char *argv[])
 {
@@ -58,9 +60,32 @@ int main(int argc, char *argv[])
 
     MinetEvent event;
 
-    while (MinetGetNextEvent(event)==0) {
+    while (MinetGetNextEvent(event, TIMEOUT_CLK)==0) {
+        if (event.eventtype == MinetEvent::Timeout) {
+            // cout << "[Timeout]: \n";
+            Time currentTime;
+            // seems not work
+            // for (ConnectionToStateMapping<TCPState> cs : clist) {
+               for (ConnectionList<TCPState>::iterator cs = clist.begin(); cs != clist.end(); ++cs) {
+                // find a timeoutted connection
+                if (cs->bTmrActive && (cs->timeout < currentTime)) {
+                    cout << "[Timeout] find a timeout event\n";
+                    if(cs->state.ExpireTimerTries()) {
+                        cout << "[Timeout] No more tries...\n";
+                        handleExpireTimerTries(cs, mux, sock);
+                    } else {
+                        if (cs->state.GetState() == CLOSED) {
+                            cout << "[Timeout] Connnection " << cs->connection << " is deleted!!!\n";
+                            clist.erase(cs);
+                        } else {
+                            handleTimeout(cs, mux, sock);
+                        }
+                    }
+                }
+            }
+        }
         // if we received an unexpected type of event, print error
-        if (event.eventtype!=MinetEvent::Dataflow || event.direction!=MinetEvent::IN) {
+        else if (event.eventtype!=MinetEvent::Dataflow || event.direction!=MinetEvent::IN) {
           MinetSendToMonitor(MinetMonitoringEvent("Unknown event ignored."));
           cerr << "Invalid event from Minet\n" << endl;
         } else {
@@ -258,6 +283,11 @@ int main(int argc, char *argv[])
                                 cs->state.SetState(CLOSE_WAIT);
                                 cout << "ACK packet sent\n";
 
+                                Time currentTime;
+                                cs->timeout = currentTime + Time(TIMEOUT_THD);
+                                cs->bTmrActive = true;
+                                cout << "time out set\n";
+
                                 // notify the sock that the connection is terminated safely
                                 resp.type       = STATUS;
                                 resp.bytes      = 0;
@@ -325,7 +355,8 @@ int main(int argc, char *argv[])
                     case CLOSE_WAIT:
                     {
                         cout << "CLOSE WAIT:\n";
-                        cout << "Should not be here\n";
+                        // cout << "Should not be here\n";
+                        //
                         break;
                     }
 
@@ -695,4 +726,42 @@ void printPacket(Packet& p)
 void deadloop()
 {
     while(1) {};
+}
+
+void handleExpireTimerTries(ConnectionList<TCPState>::iterator &cs, MinetHandle &mux, MinetHandle &sock)
+{
+    return;
+}
+
+void handleTimeout(ConnectionList<TCPState>::iterator &cs, MinetHandle &mux, MinetHandle &sock)
+{
+    switch (cs->state.GetState()) {
+        case CLOSE_WAIT: {
+            cout <<  "TIMEOUT: CLOSE_WAIT\n";
+            Packet p;
+            Buffer d(NULL, 0);
+            unsigned char flags = 0;
+            SET_FIN(flags);
+            unsigned int seq_num = cs->state.GetLastSent() + 1;
+            makePacket(p, d, cs->connection, flags, WIN_SIZE, seq_num, cs->state.GetLastAcked());
+            int sent_status = MinetSend(mux, p);
+            if (sent_status == 0) {
+                cout << "CLOS_WAIT -> LAST_ACK\n";
+                cs->state.SetState(LAST_ACK);
+                //cs->bTmrActive = false;
+                Time currentTime;
+                cs->timeout = currentTime + Time(TIMEOUT_THD);
+            }
+
+            break;
+        }
+        case LAST_ACK:
+        {
+            cout << "[Timeout] Last Ack...\n";
+            cs->state.SetState(CLOSED);
+            Time currentTime;
+            cs->timeout = currentTime + Time(TIMEOUT_THD);
+        }
+    }
+    return;
 }
