@@ -194,8 +194,12 @@ int main(int argc, char *argv[])
                         unsigned char recv_flags;
                         tcph.GetFlags(recv_flags);
                         if (!IS_SYN(recv_flags) && IS_ACK(recv_flags)) {
+                            SockRequestResponse repl(WRITE, cs->connection, Buffer(), 0, EOK);
+                            int send_status = MinetSend(sock, repl);
+                            if (send_status == 0) {
                             cout << "state SYN_RCVD -> ESTABLISHED \n";
-                            cs->state.SetState(ESTABLISHED);
+                                cs->state.SetState(ESTABLISHED);
+                            }
                         } else {
                             cerr << "SYN_RCVD: discard all other packet\n";
                         }
@@ -222,56 +226,10 @@ int main(int argc, char *argv[])
                                 cs->state.SetLastAcked(recvd_ack - 1);
                             }
                         }
-    
 
-                        // Dealing with data
-                        if (recvd_seq == cs->state.GetLastRecvd() + 1) {
-                            unsigned short len; // extracted data len
-                            unsigned char iphlen;
-
-                            iph.GetHeaderLength(iphlen);
-                            iph.GetTotalLength(len);
-                            len -= (iphlen * 4 + tcphlen);
-                            Buffer &recvd_data = p.GetPayload().ExtractFront(len);
-
-                            cout << "recvd_data\n";
-                            cout << recvd_data << "\n";
-
-                            //
-                            if (recvd_data.GetSize() > 0) {
-                                if (cs->state.RecvBuffer.GetSize() + recvd_data.GetSize() <= cs->state.TCP_BUFFER_SIZE) {
-                                    cs->state.RecvBuffer.AddBack(recvd_data);
-
-                                    cs->state.SetLastRecvd(cs->state.GetLastRecvd() + recvd_data.GetSize());
-                                    // send ack back;
-                                    Packet p;
-                                    unsigned char f = 0;
-                                    SET_ACK(f);
-                                    Buffer b(NULL, 0);
-                                    makePacket(p, b, c, f, WIN_SIZE,
-                                               cs->state.GetLastSent() + 1, cs->state.GetLastRecvd() + 1);
-                                    cs->state.SetLastSent(cs->state.GetLastSent() + 1);
-
-                                    int sent_status = MinetSend(mux, p);
-                                    if (sent_status == 0) {
-                                        cout << "ACK sent\n";
-                                        printPacket(p);
-                                    }
-
-                                    // send to sock
-                                    if (sent_status == 0) {
-                                        SockRequestResponse repl(WRITE, cs->connection, cs->state.RecvBuffer, recvd_data.GetSize(), EOK);
-                                        MinetSend(sock, repl);
-                                    }
-                                }
-                            } else {
-                                cs->state.SetLastRecvd(cs->state.GetLastRecvd() + 1);
-                            }
-                        }
                         if (IS_FIN(flags)) {
                             unsigned int seq;
                             tcph.GetSeqNum(seq);
-
 
                             if (seq == cs->state.GetLastRecvd() + 1) {
                                 Packet p;
@@ -293,15 +251,58 @@ int main(int argc, char *argv[])
                                 cout << "time out set\n";
 
                                 // notify the sock that the connection is terminated safely
-                                resp.type       = STATUS;
-                                resp.bytes      = 0;
-                                // TODO ???? what to do with resp data
-                                resp.data       = cs->state.RecvBuffer;
-                                resp.connection = c;
-                                resp.error      = EOK;
+                                SockRequestResponse repl(STATUS, cs->connection, Buffer(), 0, EOK);
                                 MinetSend(sock, resp);
                             }
                         }
+
+                        // Dealing with data
+                        else if (recvd_seq == cs->state.GetLastRecvd() + 1) {
+                            unsigned short len; // extracted data len
+                            unsigned char iphlen;
+
+                            iph.GetHeaderLength(iphlen);
+                            iph.GetTotalLength(len);
+                            len -= (iphlen * 4 + tcphlen);
+                            Buffer &recvd_data = p.GetPayload().ExtractFront(len);
+
+                            cout << "recvd_data\n";
+                            cout << recvd_data << "\n";
+
+                            //
+                            if (recvd_data.GetSize() > 0) {
+                                if (cs->state.RecvBuffer.GetSize() + recvd_data.GetSize() <= cs->state.TCP_BUFFER_SIZE) {
+
+                                    //cs->state.RecvBuffer.AddBack(recvd_data);
+                                    cs->state.SetLastRecvd(cs->state.GetLastRecvd() + recvd_data.GetSize());
+
+                                    // send ack back;
+                                    Packet p;
+                                    unsigned char f = 0;
+                                    SET_ACK(f);
+                                    Buffer b(NULL, 0);
+                                    makePacket(p, b, c, f, WIN_SIZE,
+                                               cs->state.GetLastSent() + 1, cs->state.GetLastRecvd() + 1);
+                                    cs->state.SetLastSent(cs->state.GetLastSent() + 1);
+
+                                    int sent_status = MinetSend(mux, p);
+                                    if (sent_status == 0) {
+                                        cout << "ACK sent\n";
+                                        printPacket(p);
+                                    }
+
+                                    // send to sock
+                                    if (sent_status == 0) {
+                                        SockRequestResponse repl(WRITE, cs->connection, recvd_data, recvd_data.GetSize(), EOK);
+                                        MinetSend(sock, repl);
+                                    }
+                                }
+                            } else {
+                                cs->state.SetLastRecvd(cs->state.GetLastRecvd() + 1);
+                            }
+                        }
+
+
                         if (IS_SYN(flags) || IS_PSH(flags) || IS_URG(flags)) {
                             cerr << "[ERROR] Invalid flags detected!\n";
                         }
