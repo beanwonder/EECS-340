@@ -70,10 +70,16 @@ int main(int argc, char *argv[])
                 // find a timeoutted connection
                 if (cs->bTmrActive && (cs->timeout < currentTime)) {
                     cout << "[Timeout] find a timeout event\n";
+
                     if(cs->state.ExpireTimerTries()) {
-                        cout << "[Timeout] No more tries...\n";
-                        handleExpireTimerTries(cs, mux, sock);
-                    } else {
+                        if (cs->state.GetState() == CLOSED) {
+                            cout << "[Timeout] Connnection " << cs->connection << " is deleted!!!\n";
+                            clist.erase(cs);
+                        } else {
+                            cout << "[Timeout] No more tries...\n";
+                            handleExpireTimerTries(cs, mux, sock);
+                        }
+                     } else {
                         if (cs->state.GetState() == CLOSED) {
                             cout << "[Timeout] Connnection " << cs->connection << " is deleted!!!\n";
                             clist.erase(cs);
@@ -189,9 +195,6 @@ int main(int argc, char *argv[])
                         if (!IS_SYN(recv_flags) && IS_ACK(recv_flags)) {
                             cout << "state SYN_RCVD -> ESTABLISHED \n";
                             cs->state.SetState(ESTABLISHED);
-                        } else if (IS_RST(recv_flags)) {
-                            clist.erase(cs);
-                            cout << "reset tcp connection to listen state\n";
                         } else {
                             cerr << "SYN_RCVD: discard all other packet\n";
                         }
@@ -207,10 +210,10 @@ int main(int argc, char *argv[])
                         if (IS_ACK(flags)) {
                             unsigned int recvd_ack;
                             unsigned int recvd_seq;
-                            
+
                             unsigned short len; // extracted data len
-                            unsigned char iphlen; 
-                           
+                            unsigned char iphlen;
+
                             iph.GetHeaderLength(iphlen);
                             iph.GetTotalLength(len);
                             len -= (iphlen * 4 + tcphlen);
@@ -267,8 +270,8 @@ int main(int argc, char *argv[])
                         if (IS_FIN(flags)) {
                             unsigned int seq;
                             tcph.GetSeqNum(seq);
-                            
-                            
+
+
                             if (seq == cs->state.GetLastRecvd() + 1) {
                                 Packet p;
                                 Buffer data(NULL, 0);
@@ -543,7 +546,7 @@ int main(int argc, char *argv[])
                         cerr << "Listening on connection: \n" << s.connection << "\n";
                         break;
                     }
-                    case WRITE: 
+                    case WRITE:
                     {
                         auto cs = clist.FindMatching(s.connection);
                         if (cs != clist.end() && cs->state.GetState() == ESTABLISHED) {
@@ -565,12 +568,12 @@ int main(int argc, char *argv[])
 
                                 Packet p;
                                 unsigned char flags = 0;
-                                makePacket(p, cs->state.SendBuffer, s.connection, flags, 
+                                makePacket(p, cs->state.SendBuffer, s.connection, flags,
                                            WIN_SIZE, cs->state.GetLastSent() + 1, cs->state.GetLastAcked());
                                 int send_status = MinetSend(mux, p);
                                 if (send_status == 0) {
                                     cs->state.SetLastSent(cs->state.GetLastSent() + s.bytes);
-                                    
+
                                     SockRequestResponse resp;
                                     resp.type       = STATUS;
                                     resp.connection = s.connection;
@@ -730,6 +733,42 @@ void deadloop()
 
 void handleExpireTimerTries(ConnectionList<TCPState>::iterator &cs, MinetHandle &mux, MinetHandle &sock)
 {
+
+    switch (cs->state.GetState()) {
+        case TIME_WAIT:
+        case LAST_ACK:
+        case SYN_SENT:
+        {
+            // treistimes expired close
+            cs->state.SetState(CLOSED);
+            Time currentTime;
+            cs->timeout = currentTime + Time(TIMEOUT_THD);
+            cout << "TIME_WAIT LAST_ACK SYN_SENT -> CLOSE\n";
+            cs->state.tmrTries= 0;
+            break;
+        }
+
+        case SYN_RCVD:
+        {
+            // TODO timout, send RST
+            Packet p;
+            Buffer d(NULL, 0);
+            unsigned char f = 0;
+            SET_RST(f);
+            unsigned int seq_num = cs->state.GetLastSent() + 1;
+            // unsigned int ack_num = ;
+
+            makePacket(p, d, cs->connection, f, WIN_SIZE, seq_num, cs->state.GetLastAcked());
+            int sent_status = MinetSend(mux, p);
+            if (sent_status == 0) {
+                cout << "SYN_RCVD -> CLOSED\n";
+                cs->state.SetState(CLOSED);
+                Time current_time;
+                cs->timeout = current_time + Time(TIMEOUT_THD);
+            }
+            break;
+        }
+    }
     return;
 }
 
@@ -747,20 +786,27 @@ void handleTimeout(ConnectionList<TCPState>::iterator &cs, MinetHandle &mux, Min
             int sent_status = MinetSend(mux, p);
             if (sent_status == 0) {
                 cout << "CLOS_WAIT -> LAST_ACK\n";
+                // TODO set set last sent ?
                 cs->state.SetState(LAST_ACK);
                 //cs->bTmrActive = false;
                 Time currentTime;
                 cs->timeout = currentTime + Time(TIMEOUT_THD);
+                cs->state.tmrTries = 1;
             }
-
             break;
         }
-        case LAST_ACK:
+
+        case CLOSING:
+        case TIME_WAIT:
         {
-            cout << "[Timeout] Last Ack...\n";
-            cs->state.SetState(CLOSED);
-            Time currentTime;
-            cs->timeout = currentTime + Time(TIMEOUT_THD);
+            // ack resend
+            Time current_time;
+            cs->timeout = current_time + Time(TIMEOUT_THD);
+            break;
+        }
+        case ESTABLISHED:
+        {
+            break;
         }
     }
     return;
