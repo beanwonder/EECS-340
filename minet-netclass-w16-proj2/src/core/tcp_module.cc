@@ -164,6 +164,7 @@ int main(int argc, char *argv[])
                                 printPacket(p);
                                 auto nts = TCPState(seq_num, SYN_RCVD, 10);
                                 nts.SetLastRecvd(ack_num - 1);
+                                nts.SetLastAcked(seq_num - 1);
                                 auto nc  = ConnectionToStateMapping<TCPState> (c, Time(), nts, false);
                                 clist.push_front(nc);
                                 MinetSendToMonitor(MinetMonitoringEvent("SYN ACK SENT"));
@@ -207,10 +208,24 @@ int main(int argc, char *argv[])
                         unsigned char flags;
                         tcph.GetFlags(flags);
 
-                        if (IS_ACK(flags)) {
-                            unsigned int recvd_ack;
-                            unsigned int recvd_seq;
+                        unsigned int recvd_ack;
+                        unsigned int recvd_seq;
+                        tcph.GetAckNum(recvd_ack);
+                        tcph.GetSeqNum(recvd_seq);
 
+                        // Dealing with acks
+                        if (IS_ACK(flags)) {
+                            //
+                            if (recvd_ack > cs->state.GetLastAcked() + 1 &&
+                                recvd_ack <= cs->state.GetLastSent() + 1) {
+                                cs->state.SendBuffer.Erase(0, recvd_ack - cs->state.GetLastAcked() - 1);
+                                cs->state.SetLastAcked(recvd_ack - 1);
+                            }
+                        }
+    
+
+                        // Dealing with data
+                        if (recvd_seq == cs->state.GetLastRecvd() + 1) {
                             unsigned short len; // extracted data len
                             unsigned char iphlen;
 
@@ -222,19 +237,8 @@ int main(int argc, char *argv[])
                             cout << "recvd_data\n";
                             cout << recvd_data << "\n";
 
-                            tcph.GetAckNum(recvd_ack);
-                            tcph.GetSeqNum(recvd_seq);
-
-                            // cs->state.SetLastAcked = recvd_ack - 1;
-
-                            // Dealing with acks
-                            if (recvd_ack > cs->state.GetLastAcked() + 1) {
-                                cs->state.SendBuffer.Erase(0, recvd_ack - cs->state.GetLastAcked() - 1);
-                                cs->state.SetLastAcked(recvd_ack - 1);
-                            }
-
-                            // Dealing with data
-                            if (recvd_data.GetSize() > 0 && recvd_seq == cs->state.GetLastRecvd() + 1) {
+                            //
+                            if (recvd_data.GetSize() > 0) {
                                 if (cs->state.RecvBuffer.GetSize() + recvd_data.GetSize() <= cs->state.TCP_BUFFER_SIZE) {
                                     cs->state.RecvBuffer.AddBack(recvd_data);
 
@@ -246,7 +250,8 @@ int main(int argc, char *argv[])
                                     Buffer b(NULL, 0);
                                     makePacket(p, b, c, f, WIN_SIZE,
                                                cs->state.GetLastSent() + 1, cs->state.GetLastRecvd() + 1);
-                                    cs->state.SetLastSent(cs->state.GetLastSent() + recvd_data.GetSize());
+                                    cs->state.SetLastSent(cs->state.GetLastSent() + 1);
+
                                     int sent_status = MinetSend(mux, p);
                                     if (sent_status == 0) {
                                         cout << "ACK sent\n";
@@ -255,16 +260,12 @@ int main(int argc, char *argv[])
 
                                     // send to sock
                                     if (sent_status == 0) {
-                                        SockRequestResponse repl;
-                                        repl.type  = WRITE;
-                                        repl.bytes = recvd_data.GetSize();
-                                        repl.data  = cs->state.RecvBuffer;
-
+                                        SockRequestResponse repl(WRITE, cs->connection, cs->state.RecvBuffer, recvd_data.GetSize(), EOK);
                                         MinetSend(sock, repl);
                                     }
                                 }
                             } else {
-                                // discard packet data
+                                cs->state.SetLastRecvd(cs->state.GetLastRecvd() + 1);
                             }
                         }
                         if (IS_FIN(flags)) {
@@ -573,31 +574,18 @@ int main(int argc, char *argv[])
                                 int send_status = MinetSend(mux, p);
                                 if (send_status == 0) {
                                     cs->state.SetLastSent(cs->state.GetLastSent() + s.bytes);
-
-                                    SockRequestResponse resp;
-                                    resp.type       = STATUS;
-                                    resp.connection = s.connection;
-                                    resp.bytes      = s.bytes;
-                                    resp.error      = EOK;
+                                    SockRequestResponse resp(STATUS, s.connection, Buffer(), s.bytes, EOK);
                                     MinetSend(sock, resp);
                                 } else {
                                     cout << "[ERROR] Send Data Packet Failed!\n";
-                                    SockRequestResponse resp;
-                                    resp.type       = STATUS;
-                                    resp.connection = s.connection;
-                                    resp.bytes      = 0;
-                                    resp.error      = EBUF_SPACE;
+                                    SockRequestResponse resp(STATUS, s.connection, Buffer(), 0, EBUF_SPACE);
                                     MinetSend(sock, resp);
                                 }
                             } else {
                             }
                         } else {
                                 cout << "[ERROR] WRITE: Unmatched connection\n";
-                                SockRequestResponse resp;
-                                resp.type       = STATUS;
-                                resp.connection = s.connection;
-                                resp.bytes      = 0;
-                                resp.error      = ENOMATCH;
+                                SockRequestResponse resp(STATUS, s.connection, Buffer(), 0, ENOMATCH);
                                 MinetSend(sock, resp);
                         }
                         break;
@@ -625,6 +613,11 @@ int main(int argc, char *argv[])
                                 if (sent_status == 0) {
                                     cs->state.SetLastSent(seqNum);
                                     cs->state.SetState(LAST_ACK);
+                                    // reset timer
+                                    cs->state.tmrTries = 3;
+                                    Time currentTime;
+                                    cs->timeout = currentTime + Time(TIMEOUT_THD);
+                                    cs->bTmrActive = true;
                                 } else {
                                     cerr << "[ERROR] FIN not sent\n";
                                     continue;
@@ -645,6 +638,11 @@ int main(int argc, char *argv[])
                                 if (sent_status == 0) {
                                     cs->state.SetLastSent(seqNum);
                                     cs->state.SetState(FIN_WAIT1);
+                                    // reset timer
+                                    cs->state.tmrTries = 3;
+                                    Time currentTime;
+                                    cs->timeout = currentTime + Time(TIMEOUT_THD);
+                                    cs->bTmrActive = true;
                                 } else {
                                     cerr << "[ERROR] FIN not sent\n";
                                     continue;
@@ -758,7 +756,7 @@ void handleExpireTimerTries(ConnectionList<TCPState>::iterator &cs, MinetHandle 
             unsigned int seq_num = cs->state.GetLastSent() + 1;
             // unsigned int ack_num = ;
 
-            makePacket(p, d, cs->connection, f, WIN_SIZE, seq_num, cs->state.GetLastAcked());
+            makePacket(p, d, cs->connection, f, WIN_SIZE, seq_num, cs->state.GetLastSent());
             int sent_status = MinetSend(mux, p);
             if (sent_status == 0) {
                 cout << "SYN_RCVD -> CLOSED\n";
@@ -768,6 +766,7 @@ void handleExpireTimerTries(ConnectionList<TCPState>::iterator &cs, MinetHandle 
             }
             break;
         }
+            
     }
     return;
 }
@@ -775,14 +774,52 @@ void handleExpireTimerTries(ConnectionList<TCPState>::iterator &cs, MinetHandle 
 void handleTimeout(ConnectionList<TCPState>::iterator &cs, MinetHandle &mux, MinetHandle &sock)
 {
     switch (cs->state.GetState()) {
+        case SYN_RCVD:
+        {
+            cout << "[Timeout] SYN_RCVD\n";
+            // resend SYN ACK packet
+            Packet p;
+            Buffer d(NULL, 0);
+            unsigned char flags = 0;
+            SET_SYN(flags);
+            SET_ACK(flags);
+            unsigned int seqNum = cs->state.GetLastAcked() + 1;
+            makePacket(p, d, cs->connection, flags, WIN_SIZE, seqNum, cs->state.GetLastRecvd() + 1);
+            int sent_status = MinetSend(mux, p);
+            if (sent_status == 0) {
+                Time currentTime;
+                cs->timeout = currentTime + Time(TIMEOUT_THD);
+            }
+            break;
+        }
+
+        case SYN_SENT:
+        {
+            cout << "[Timeout] SYN_SENT\n";
+            // resend SYN packet
+            Packet p;
+            Buffer d(NULL, 0);
+            unsigned char flags = 0;
+            SET_SYN(flags);
+            unsigned int seqNum = cs->state.GetLastAcked() + 1;
+            makePacket(p, d, cs->connection, flags, WIN_SIZE, seqNum, cs->state.GetLastRecvd() + 1);
+            int sent_status = MinetSend(mux, p);
+            if (sent_status == 0) {
+                Time currentTime;
+                cs->timeout = currentTime + Time(TIMEOUT_THD);
+            }
+            break;
+        }
+            
         case CLOSE_WAIT: {
-            cout <<  "TIMEOUT: CLOSE_WAIT\n";
+            cout <<  "[Timeout] CLOSE_WAIT\n";
+            // resend the finish packet
             Packet p;
             Buffer d(NULL, 0);
             unsigned char flags = 0;
             SET_FIN(flags);
-            unsigned int seq_num = cs->state.GetLastSent() + 1;
-            makePacket(p, d, cs->connection, flags, WIN_SIZE, seq_num, cs->state.GetLastAcked());
+            unsigned int seq_num = cs->state.GetLastAcked() + 1;
+            makePacket(p, d, cs->connection, flags, WIN_SIZE, seq_num, cs->state.GetLastRecvd() + 1);
             int sent_status = MinetSend(mux, p);
             if (sent_status == 0) {
                 cout << "CLOS_WAIT -> LAST_ACK\n";
@@ -796,12 +833,31 @@ void handleTimeout(ConnectionList<TCPState>::iterator &cs, MinetHandle &mux, Min
             break;
         }
 
-        case CLOSING:
+        case LAST_ACK:
+        case FIN_WAIT1:
+        {
+            cout << "[Timeout] LACK_ACK / FIN_WAIT_1\n";
+            // resend the finish packet
+            Packet p;
+            Buffer d(NULL, 0);
+            unsigned char flags = 0;
+            SET_FIN(flags);
+            unsigned int seqNum = cs->state.GetLastAcked() + 1;
+            makePacket(p, d, cs->connection, flags, WIN_SIZE, seqNum, cs->state.GetLastRecvd() + 1);
+            int sent_status = MinetSend(mux, p);
+            if (sent_status == 0) {
+                Time currentTime;
+                cs->timeout = currentTime + Time(TIMEOUT_THD);
+            }
+            break;
+        }
+
         case TIME_WAIT:
         {
-            // ack resend
+            // Wait 120s (TIMEOUT_THD * 60 expires);
             Time current_time;
             cs->timeout = current_time + Time(TIMEOUT_THD);
+            cs->state.tmrTries = 60;
             break;
         }
         case ESTABLISHED:
