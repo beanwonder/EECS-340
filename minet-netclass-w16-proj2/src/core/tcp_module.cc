@@ -69,18 +69,18 @@ int main(int argc, char *argv[])
                 cout << "\nEvent from mux received\n";
                 Packet p;
                 MinetReceive(mux,p);
+                printPacket(p);
                 unsigned tcphlen=TCPHeader::EstimateTCPHeaderLength(p);
-                cerr << "Estimated TCP header len=" << tcphlen << "\n";
+                //cerr << "Estimated TCP header len=" << tcphlen << "\n";
                 p.ExtractHeaderFromPayload<TCPHeader>(tcphlen);
                 IPHeader iph = p.FindHeader(Headers::IPHeader);
                 TCPHeader tcph = p.FindHeader(Headers::TCPHeader);
                 Connection c;
 
-                // cerr << "IP Header is "<<iph<<"\n";
-                // cerr << "TCP Header is "<<tcph << "\n";
                 if (!tcph.IsCorrectChecksum(p)) {
-                    cerr << "Checksum check FAILED!!!\n";
-                    //continue;
+                    cerr << "[ERROR] Checksum check FAILED!!!\n";
+                    // if the packet is corrupted, discard it.
+                    continue;
                 }
 
                 // Identifty the connection with 5-tuple
@@ -93,7 +93,7 @@ int main(int argc, char *argv[])
                 auto cs = clist.FindMatching(c);
 
                 if(cs == clist.end()) {
-                    cerr << "ERROR: invalid connection detected!!!\n";
+                    cerr << "[ERROR] Invalid connection detected!!!\n";
                     continue;
                 }
 
@@ -105,7 +105,7 @@ int main(int argc, char *argv[])
                 {
                     case LISTEN:
                     {
-                        cout << "Passive open ...\n";
+                        cout << "Listen: Passive open ...\n";
                         unsigned char flags;
                         tcph.GetFlags(flags);
                         if (IS_SYN(flags) && !IS_ACK(flags)) { // TODO what if IS_RST
@@ -211,7 +211,7 @@ int main(int argc, char *argv[])
 
                     case SYN_SENT:
                     {
-                        cout << "Active open ack...\n";
+                        cout << "SYN_SENT: Active open ack...\n";
                         unsigned char flags;
                         tcph.GetFlags(flags);
                         if(IS_SYN(flags) && IS_ACK(flags)) {
@@ -260,8 +260,6 @@ int main(int argc, char *argv[])
                     {
                         cout << "CLOSE WAIT:\n";
                         cout << "Should not be here\n";
-                        while (1 == 1) {
-                        }
                         break;
                     }
                     
@@ -453,7 +451,6 @@ int main(int argc, char *argv[])
                         break;
                     }
                     case FORWARD: {
-
                         break;
                     }
                     case CLOSE: {
