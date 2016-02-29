@@ -129,9 +129,7 @@ int main(int argc, char *argv[])
 
                                 // Create a new connection
                                 cout << "Createing new connection...\n";
-                                cout << p << "\n";
-                                cout << (IPHeader)p.FindHeader(Headers::IPHeader) << "\n";
-                                cout << (TCPHeader)p.FindHeader(Headers::TCPHeader) << "\n";
+                                printPacket(p);
                                 auto nts = TCPState(seq_num, SYN_RCVD, 10);
                                 nts.SetLastRecvd(ack_num - 1);
                                 auto nc  = ConnectionToStateMapping<TCPState> (c, Time(), nts, false);
@@ -300,9 +298,10 @@ int main(int argc, char *argv[])
                             cs->state.SetState(ESTABLISHED);
 
                             // Sent respond to sock
-                            resp.type       = WRITE;
+                            resp.type       = STATUS;
                             resp.connection = c;
                             resp.bytes      = 0;
+                            resp.error      = EOK;
                             MinetSend(sock, resp);
 
                         } else {
