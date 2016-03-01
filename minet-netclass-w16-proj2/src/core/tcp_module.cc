@@ -11,6 +11,7 @@
 #include <errno.h>
 
 #include <iostream>
+#include <algorithm>
 
 #include "Minet.h"
 #include "tcpstate.h"
@@ -28,6 +29,8 @@ using std::string;
 
 int makePacket(Packet& p, Buffer& data, Connection& c, unsigned char flags,
                unsigned int winSize, unsigned int segNum, unsigned int ackNum = 0);
+
+int go_back_N_send_data(ConnectionList<TCPState>::iterator &cs, unsigned int start, unsigned int len, unsigned int start_seq, MinetHandle &mux);
 
 void printPacket(Packet& p);
 void deadloop();
@@ -219,11 +222,16 @@ int main(int argc, char *argv[])
 
                         // Dealing with acks
                         if (IS_ACK(flags)) {
-                            //
+                            // data acks and erase from buffer
                             if (recvd_ack > cs->state.GetLastAcked() + 1 &&
                                 recvd_ack <= cs->state.GetLastSent() + 1) {
                                 cs->state.SendBuffer.Erase(0, recvd_ack - cs->state.GetLastAcked() - 1);
                                 cs->state.SetLastAcked(recvd_ack - 1);
+
+                                // reset timeout
+                                Time currentTime;
+                                cs->timeout = currentTime + Time(TIMEOUT_THD);
+                                cs->state.tmrTries = 1;
                             }
                         }
 
@@ -552,13 +560,80 @@ int main(int argc, char *argv[])
                     {
                         auto cs = clist.FindMatching(s.connection);
                         if (cs != clist.end() && cs->state.GetState() == ESTABLISHED) {
+                            // lets Go back N
+                            // add data to sender buffer
+                            if (cs->state.SendBuffer.GetSize() + s.data.GetSize() <= cs->state.TCP_BUFFER_SIZE) {
+
+                                cs->state.SendBuffer.AddBack(s.data);
+                                unsigned int send_not_acked = cs->state.GetLastSent() - cs->state.GetLastAcked();
+                                unsigned int left_send_win_size = cs->state.GetN() - send_not_acked;
+
+                                if (left_send_win_size > 0) {
+                                    unsigned int data_not_send = cs->state.SendBuffer.GetSize() - send_not_acked;
+                                    // send size
+                                    unsigned int data_to_send = std::min(left_send_win_size, data_not_send);
+                                    // data_to_send = std::min(TCP_MAXIMUM_SEGMENT_SIZE, data_to_send); // exclude header
+                                    //
+                                    int data_sent = go_back_N_send_data(cs, send_not_acked, data_to_send, cs->state.GetLastSent()+1, mux);
+
+                                    if (data_sent > 0) {
+                                        cs->state.SetLastSent(cs->state.GetLastSent() + data_sent);
+                                        SockRequestResponse repl(STATUS, s.connection, Buffer(), data_sent, EOK);
+                                        MinetSend(sock, repl);
+                                        cs->bTmrActive = true;
+
+                                        // open timer for go backN
+                                        cs->bTmrActive = true;
+                                        Time currentTime;
+                                        cs->timeout = currentTime + Time(TIMEOUT_THD);
+                                        cs->state.tmrTries = 1;
+
+                                    }
+                                    // if data to send size > segment
+                                    /*
+                                    int offset = send_not_acked;
+                                    // send packet
+                                    Packet p;
+                                    unsigned char flags = 0;
+                                    SET_ACK(flags);
+                                    char buf[TCP_MAXIMUM_SEGMENT_SIZE] = {0};
+                                    cs->state.SendBuffer.GetData(buf, data_to_send, offset);
+                                    Buffer d(buf, data_to_send);
+
+                                    makePacket(p, d, s.connection, flags,
+                                               cs->state.GetN(), cs->state.GetLastSent()+1, cs->state.GetLastAcked());
+                                    int send_status = MinetSend(mux, p);
+
+                                    if (send_status == 0) {
+                                        cs->state.SetLastSent(cs->state.GetLastSent() + data_to_send);
+                                        SockRequestResponse repl(STATUS, s.connection, Buffer(), data_to_send, EOK);
+                                        MinetSend(sock, repl);
+
+                                        // open timer for go backN
+                                        cs->bTmrActive = true;
+                                        Time currentTime;
+                                        cs->timeout = currentTime + Time(TIMEOUT_THD);
+                                        cs->state.tmrTries = 1;
+                                    }
+                                    */
+                                } else {
+                                    if (left_send_win_size < 0) {
+                                        cerr << "ERROR NEVER REACH HERE\n";
+                                    }
+                                }
+                            } else {
+                                cout << "RecvBuffer Overflow\n";
+                                SockRequestResponse repl(STATUS, s.connection, Buffer(), 0, EBUF_SPACE);
+                                MinetSend(sock, repl);
+                            }
+
+                            /*
                             // not go back N
                             if (cs->state.GetLastSent() == cs->state.GetLastAcked()) {
                                 if (cs->state.SendBuffer.GetSize() != 0) {
                                     cout << "[ERROR] Send buffer error\n";
                                     deadloop();
                                 }
-
                                 if (cs->state.SendBuffer.GetSize() + s.bytes <=
                                     cs->state.TCP_BUFFER_SIZE) {
                                     cs->state.SendBuffer.AddBack(s.data);
@@ -583,7 +658,9 @@ int main(int argc, char *argv[])
                                     MinetSend(sock, resp);
                                 }
                             } else {
+
                             }
+                            */
                         } else {
                                 cout << "[ERROR] WRITE: Unmatched connection\n";
                                 SockRequestResponse resp(STATUS, s.connection, Buffer(), 0, ENOMATCH);
@@ -767,7 +844,7 @@ void handleExpireTimerTries(ConnectionList<TCPState>::iterator &cs, MinetHandle 
             }
             break;
         }
-            
+
     }
     return;
 }
@@ -811,7 +888,7 @@ void handleTimeout(ConnectionList<TCPState>::iterator &cs, MinetHandle &mux, Min
             }
             break;
         }
-            
+
         case CLOSE_WAIT: {
             cout <<  "[Timeout] CLOSE_WAIT\n";
             // resend the finish packet
@@ -863,8 +940,66 @@ void handleTimeout(ConnectionList<TCPState>::iterator &cs, MinetHandle &mux, Min
         }
         case ESTABLISHED:
         {
+            unsigned int data_resend = go_back_N_send_data(cs, 0, cs->state.GetLastSent() - cs->state.GetLastAcked(),
+                                                           cs->state.GetLastSent()+1, mux);
+            if (data_resend > 0) {
+                Time currentTime;
+                cs->timeout = currentTime + Time(TIMEOUT_THD);
+            }
+
             break;
         }
     }
     return;
+}
+
+int go_back_N_send_data(ConnectionList<TCPState>::iterator &cs, unsigned int start, unsigned int len, unsigned int start_seq, MinetHandle &mux)
+{
+    unsigned int data_to_send = len;
+    unsigned int offset = start;
+    unsigned int seq_num = start_seq;
+    Buffer &send_buffer = cs->state.SendBuffer;
+
+    while (data_to_send > TCP_MAXIMUM_SEGMENT_SIZE) {
+        Packet p;
+        unsigned char flags = 0;
+        SET_ACK(flags);
+        char buf[TCP_MAXIMUM_SEGMENT_SIZE] = {0};
+        send_buffer.GetData(buf, TCP_MAXIMUM_SEGMENT_SIZE, offset);
+        Buffer d(buf, TCP_MAXIMUM_SEGMENT_SIZE);
+
+        makePacket(p, d, cs->connection, flags,
+                   cs->state.GetN(), seq_num,
+                   cs->state.GetLastAcked());
+        int send_status = MinetSend(mux, p);
+        if (send_status == 0) {
+            data_to_send -= TCP_MAXIMUM_SEGMENT_SIZE;
+            offset       += TCP_MAXIMUM_SEGMENT_SIZE;
+            seq_num      += TCP_MAXIMUM_SEGMENT_SIZE;
+        } else {
+            return offset;
+        }
+    }
+
+    if (data_to_send > 0) {
+        // send last data
+        Packet p;
+        unsigned char flags = 0;
+        SET_ACK(flags);
+        char buf[TCP_MAXIMUM_SEGMENT_SIZE] = {0};
+        send_buffer.GetData(buf, data_to_send, offset);
+        Buffer d(buf, data_to_send);
+
+        makePacket(p, d, cs->connection, flags,
+                   cs->state.GetN(), seq_num,
+                   cs->state.GetLastAcked());
+        int send_status = MinetSend(mux, p);
+        if (send_status == 0) {
+            offset       += data_to_send;
+            data_to_send -= data_to_send;
+            offset       += data_to_send;
+            seq_num      += data_to_send;
+        }
+    }
+    return offset;
 }
