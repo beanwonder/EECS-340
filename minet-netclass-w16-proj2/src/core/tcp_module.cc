@@ -1,5 +1,4 @@
-#include <sys/time.h>
-#include <sys/types.h>
+#include <sys/time.h> #include <sys/types.h>
 #include <unistd.h>
 
 #include <sys/socket.h>
@@ -163,8 +162,8 @@ int main(int argc, char *argv[])
                                 cout << "Createing new connection...\n";
                                 printPacket(p);
                                 auto nts = TCPState(seq_num, SYN_RCVD, 10);
-                                nts.SetLastRecvd(ack_num - 1);
-                                nts.SetLastAcked(seq_num - 1);
+                                nts.last_acked = seq_num - 1;
+                                nts.last_recvd = ack_num - 1;
                                 auto nc  = ConnectionToStateMapping<TCPState> (c, Time(), nts, false);
                                 clist.push_front(nc);
                                 MinetSendToMonitor(MinetMonitoringEvent("SYN ACK SENT"));
@@ -222,8 +221,14 @@ int main(int argc, char *argv[])
                             //
                             if (recvd_ack > cs->state.GetLastAcked() + 1 &&
                                 recvd_ack <= cs->state.GetLastSent() + 1) {
+                                cs->bTmrActive = false;
+                                cout << "Timer Stopped\n";
                                 cs->state.SendBuffer.Erase(0, recvd_ack - cs->state.GetLastAcked() - 1);
                                 cs->state.SetLastAcked(recvd_ack - 1);
+                            } else {
+                                cout << "[ERROR] invalid ack number:\n" << recvd_ack << "\n";
+                                cout << "        lastacked: " << cs->state.GetLastAcked() << "\n";
+                                cout << "        lastSent : " << cs->state.GetLastSent() << "\n";
                             }
                         }
 
@@ -298,6 +303,7 @@ int main(int argc, char *argv[])
                                     }
                                 }
                             } else {
+                                cout << "No data payload\n";
                                 cs->state.SetLastRecvd(cs->state.GetLastRecvd() + 1);
                             }
                         }
@@ -306,7 +312,9 @@ int main(int argc, char *argv[])
                         if (IS_SYN(flags) || IS_PSH(flags) || IS_URG(flags)) {
                             cerr << "[ERROR] Invalid flags detected!\n";
                         }
+
                         break;
+                  
                     }
 
                     case SYN_SENT:
@@ -327,14 +335,14 @@ int main(int argc, char *argv[])
                             TCPState &ts = (*cs).state;
 
                             // Sanity Check
-                            if (recAckNum != ts.last_acked + 1) {
+                            if (recAckNum <= ts.last_acked + 1) {
                                 cerr << "[ERROR] invalid ack number received: " << recAckNum << "\n";
-                                cerr << "        expecting: " << ts.last_acked + 1 << "\n";
                                 continue;
                             }
 
                             // Update TCP State
                             ts.last_recvd = recSeqNum; // + data size
+                            ts.last_acked = recAckNum - 1;
 
                             makePacket(p, data, c, flags, WIN_SIZE, ts.last_sent, recSeqNum + 1);
                             MinetSend(mux, p);
@@ -342,14 +350,11 @@ int main(int argc, char *argv[])
 
                             // Update connection state
                             cs->state.SetState(ESTABLISHED);
+                            cs->bTmrActive = false;
 
                             // Sent respond to sock
-                            resp.type       = STATUS;
-                            resp.connection = c;
-                            resp.bytes      = 0;
-                            resp.error      = EOK;
+                            SockRequestResponse resp(WRITE, cs->connection, Buffer(), 0, EOK);
                             MinetSend(sock, resp);
-
                         } else {
                             cerr << "[ERROR] Invalud flags: " << flags << "\n";
                             continue;
@@ -360,8 +365,8 @@ int main(int argc, char *argv[])
                     case CLOSE_WAIT:
                     {
                         cout << "CLOSE WAIT:\n";
-                        // cout << "Should not be here\n";
-                        //
+                        cout << "Should not be here\n";
+                        
                         break;
                     }
 
@@ -511,10 +516,14 @@ int main(int argc, char *argv[])
                             makePacket(p, b, s.connection, f, WIN_SIZE, seqNum);
 
                             int send_status = MinetSend(mux, p);
+                            printPacket(p);
                             if (send_status == 0) {
                                 cout << "SYN packet sent\n";
                                 TCPState ts(seqNum, SYN_SENT, NUM_RETRIES);
-                                auto con = ConnectionToStateMapping<TCPState>(s.connection, Time(), ts, false);
+                                ts.last_acked = seqNum - 1;
+                                cout << "GetLastAcked: " << ts.GetLastAcked() << "\n";
+                                ts.tmrTries = NUM_RETRIES;
+                                auto con = ConnectionToStateMapping<TCPState>(s.connection, Time() + Time(TIMEOUT_THD), ts, true);
                                 clist.push_front(con);
                             } else {
                                 cerr << "[]ERROR] SYN Packet not send\n";
@@ -559,7 +568,7 @@ int main(int argc, char *argv[])
                                     deadloop();
                                 }
 
-                                if (cs->state.SendBuffer.GetSize() + s.bytes <=
+                                if (cs->state.SendBuffer.GetSize() + s.data.GetSize() <=
                                     cs->state.TCP_BUFFER_SIZE) {
                                     cs->state.SendBuffer.AddBack(s.data);
                                 } else {
@@ -570,12 +579,19 @@ int main(int argc, char *argv[])
 
                                 Packet p;
                                 unsigned char flags = 0;
+                                //SET_ACK(flags);
                                 makePacket(p, cs->state.SendBuffer, s.connection, flags,
-                                           WIN_SIZE, cs->state.GetLastSent() + 1, cs->state.GetLastAcked());
+                                           WIN_SIZE, cs->state.GetLastSent() + 1, cs->state.GetLastAcked() + 1);
                                 int send_status = MinetSend(mux, p);
+                                Time currentTime;
+                                cs->timeout = currentTime + Time(TIMEOUT_THD);
+                                cs->bTmrActive = true;
+                                cout << "Timer Started\n";
+                                printPacket(p);
                                 if (send_status == 0) {
-                                    cs->state.SetLastSent(cs->state.GetLastSent() + s.bytes);
-                                    SockRequestResponse resp(STATUS, s.connection, Buffer(), s.bytes, EOK);
+                                    cs->state.SetLastSent(cs->state.GetLastSent() + s.data.GetSize());
+                                    //SockRequestResponse resp(STATUS, s.connection, Buffer(), s.data.GetSize(), EOK);
+                                    SockRequestResponse resp(STATUS, s.connection, Buffer(), 0, EOK);
                                     MinetSend(sock, resp);
                                 } else {
                                     cout << "[ERROR] Send Data Packet Failed!\n";
@@ -583,6 +599,7 @@ int main(int argc, char *argv[])
                                     MinetSend(sock, resp);
                                 }
                             } else {
+                                cout << "[ERROR]\n";
                             }
                         } else {
                                 cout << "[ERROR] WRITE: Unmatched connection\n";
@@ -727,6 +744,9 @@ void printPacket(Packet& p)
 
 void deadloop()
 {
+    cout << "ENTERED DEAD LOOP !!!!!!\n";
+    cout << "ENTERED DEAD LOOP !!!!!!\n";
+    cout << "ENTERED DEAD LOOP !!!!!!\n";
     while(1) {};
 }
 
@@ -803,7 +823,9 @@ void handleTimeout(ConnectionList<TCPState>::iterator &cs, MinetHandle &mux, Min
             unsigned char flags = 0;
             SET_SYN(flags);
             unsigned int seqNum = cs->state.GetLastAcked() + 1;
-            makePacket(p, d, cs->connection, flags, WIN_SIZE, seqNum, cs->state.GetLastRecvd() + 1);
+            cout << "[Timeout] GetLastAcked: " << cs->state.GetLastAcked() << "\n";
+            makePacket(p, d, cs->connection, flags, WIN_SIZE, seqNum, 0);
+            printPacket(p);
             int sent_status = MinetSend(mux, p);
             if (sent_status == 0) {
                 Time currentTime;
