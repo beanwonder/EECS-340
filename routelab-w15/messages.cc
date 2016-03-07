@@ -28,18 +28,33 @@ RoutingMessage::RoutingMessage(const RoutingMessage &rhs)
 
 
 #if defined(DISTANCEVECTOR)
+#include "error.h"
 
 ostream &RoutingMessage::Print(ostream &os) const
 {
-  return os;
+
+    os << "routing message from router No: " << src;
+    for (unsigned i=0; i < dv.size(); ++i) {
+        os << dv[i] << ' ';
+    }
+    os << '\n';
+    return os;
 }
 
-RoutingMessage::RoutingMessage()
-{}
+RoutingMessage::RoutingMessage() { throw GeneralException(); };
+
+RoutingMessage::RoutingMessage(unsigned src, vector<double> &dv)
+{
+    this->src = src;
+    this->dv = vector<double>(dv);
+}
 
 
 RoutingMessage::RoutingMessage(const RoutingMessage &rhs)
-{}
+{
+    src = rhs.src;
+    dv = vector<double>(rhs.dv);
+}
 
 #endif
 

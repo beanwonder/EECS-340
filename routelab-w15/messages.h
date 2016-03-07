@@ -17,6 +17,7 @@ struct RoutingMessage {
 struct RoutingMessage {
 
   RoutingMessage();
+  RoutingMessage(unsigned src, vector<double> &dv);
   RoutingMessage(const RoutingMessage &rhs);
   RoutingMessage &operator=(const RoutingMessage &rhs);
 
@@ -27,11 +28,14 @@ struct RoutingMessage {
 #if defined(DISTANCEVECTOR)
 struct RoutingMessage {
 
-  RoutingMessage();
-  RoutingMessage(const RoutingMessage &rhs);
-  RoutingMessage &operator=(const RoutingMessage &rhs);
+    unsigned src;
+    std::vector<double> dv;
 
-  ostream & Print(ostream &os) const;
+    RoutingMessage(unsigned src, vector<double> dv);
+    RoutingMessage(const RoutingMessage &rhs);
+    RoutingMessage &operator=(const RoutingMessage &rhs);
+
+    ostream & Print(ostream &os) const;
 };
 #endif
 

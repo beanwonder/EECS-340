@@ -3,13 +3,17 @@
 
 
 #include <iostream>
+#include <vector>
+#include <deque>
+
+#include "node.h"
+#include "messages.h"
 
 using namespace std;
 
 #if defined(GENERIC)
 class Table {
   // Students should write this class
-
  public:
   ostream & Print(ostream &os) const;
 };
@@ -25,13 +29,36 @@ class Table {
 #endif
 
 #if defined(DISTANCEVECTOR)
-
-#include <deque>
+class Table;
 
 class Table {
- public:
-  ostream & Print(ostream &os) const;
+    private:
+        // indexed by number
+        //
+        // map<int, double> cost_to_neighbor;
+        // vector<double> idv;
+        unsigned number;
+        unsigned num_nodes;
+        vector<vector<double>> dv_table;
+        vector<double> direct_cost;
+        vector<unsigned> next_hop;
+        // deque<Node*> neighbours;
+        // map<int, vector<double>> neighbor_dvs;
+        bool recompute_table();
+    public:
+        Table();
+        Table(unsigned num, unsigned num_nodes);
+        Table(const Table &rhs);
+        ostream & Print(ostream &os) const;
+
+        bool update_table_with_dv(unsigned src, vector<double> dv);
+        bool update_neighbour(unsigned n, double d);
+        bool update_neighbours(deque<Link*> lks);
+
+        int get_next_hop(unsigned n) const;
+        vector<double> get_my_dv() const;
 };
+
 #endif
 
 inline ostream & operator<<(ostream &os, const Table &t) { return t.Print(os);}
