@@ -1,6 +1,6 @@
 AR = ar
 CXX = g++
-CXXFLAGS = -g -gstabs+ -ggdb -Wall
+CXXFLAGS = -std=c++0x -g -gstabs+ -ggdb -Wall
 LDFLAGS = 
 
 TYPE = GENERIC
