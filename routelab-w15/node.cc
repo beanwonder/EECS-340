@@ -60,11 +60,12 @@ Node::~Node()
 // so that the corresponding node can recieve the ROUTING_MESSAGE_ARRIVAL event at the proper time
 void Node::SendToNeighbors(const RoutingMessage *m)
 {
+    cerr << "send to neighbors not implemented \n";
 }
 
 void Node::SendToNeighbor(const Node *n, const RoutingMessage *m)
 {
-
+    cerr << "send to neighbors not implemented \n";
 }
 
 deque<Node*> *Node::GetNeighbors()
@@ -172,8 +173,8 @@ void Node::LinkHasBeenUpdated(const Link *l)
     cerr << *this<<": Link Update: "<<*l<<endl;
     bool changed = route_table.update_neighbour(l->GetDest(), l->GetLatency());
     if (changed) {
-	RoutingMessage msg(number, route_table.get_my_dv());
-	SendToNeighbors(&msg);
+        RoutingMessage msg(number, route_table.get_my_dv());
+        SendToNeighbors(&msg);
     }
 }
 
@@ -182,8 +183,8 @@ void Node::ProcessIncomingRoutingMessage(const RoutingMessage *m)
 {
     bool changed = route_table.update_table_with_dv(m->src, m->dv);
     if (changed) {
-	RoutingMessage msg(number, route_table.get_my_dv());
-	SendToNeighbors(&msg);
+        RoutingMessage msg(number, route_table.get_my_dv());
+        SendToNeighbors(&msg);
     }
 }
 
@@ -197,18 +198,18 @@ Node *Node::GetNextHop(const Node *destination)
 {
     unsigned next = route_table.get_next_hop(destination->GetNumber());
     if (next != number) {
-	auto neibrs = this->GetNeighbors();
-	for (deque<Node*>::iterator it=neibrs->begin(); it != neibrs->end(); ++it) {
-	    if ((*it)->GetNumber() == next) {
-		return new Node(*(*it));
-	    }
-	}
-	// if not find that's a mistake throws a exception
-	throw GeneralException();
+        auto neibrs = this->GetNeighbors();
+        for (deque<Node*>::iterator it=neibrs->begin(); it != neibrs->end(); ++it) {
+            if ((*it)->GetNumber() == next) {
+                return new Node(*(*it));
+            }
+        }
+        // if not find that's a mistake throws a exception
+        throw GeneralException();
     } else {
-	// next hop is my self !!!
-	// unreachable
-	return NULL;
+        // next hop is my self !!!
+        // unreachable
+        return NULL;
     }
 }
 

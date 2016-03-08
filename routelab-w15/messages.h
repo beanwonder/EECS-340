@@ -16,12 +16,12 @@ struct RoutingMessage {
 #if defined(LINKSTATE)
 struct RoutingMessage {
 
-  RoutingMessage();
-  RoutingMessage(unsigned src, vector<double> &dv);
-  RoutingMessage(const RoutingMessage &rhs);
-  RoutingMessage &operator=(const RoutingMessage &rhs);
+    RoutingMessage();
+    RoutingMessage(unsigned src, vector<double> &dv);
+    RoutingMessage(const RoutingMessage &rhs);
+    RoutingMessage &operator=(const RoutingMessage &rhs);
+    ostream & Print(ostream &os) const;
 
-  ostream & Print(ostream &os) const;
 };
 #endif
 
@@ -31,6 +31,7 @@ struct RoutingMessage {
     unsigned src;
     std::vector<double> dv;
 
+    RoutingMessage();
     RoutingMessage(unsigned src, vector<double> dv);
     RoutingMessage(const RoutingMessage &rhs);
     RoutingMessage &operator=(const RoutingMessage &rhs);

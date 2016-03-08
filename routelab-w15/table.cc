@@ -18,10 +18,10 @@ ostream & Table::Print(ostream &os) const
 #include <cassert>
 #include <algorithm>
 #include <limits>
-#include "link.h"
+// #include "link.h"
 #include "error.h"
 
-Table::Table() { throw GeneralException(); }
+Table::Table() {}
 
 Table::Table(unsigned num, unsigned num_nodes) {
     number = num;
@@ -61,7 +61,6 @@ ostream& Table::Print(ostream &os) const {
         os << next_hop[i] << ' ';
     }
     os << '\n';
-
     return os;
 }
 
@@ -104,6 +103,7 @@ bool Table::update_table_with_dv(unsigned num, vector<double> dv) {
     */
 }
 
+/*
 bool Table::update_neighbours(deque<Link*> lks) {
     for (deque<Link*>::iterator it = lks.begin(); it != lks.end(); ++it) {
         if ((*it)->GetSrc() == number) {
@@ -112,6 +112,7 @@ bool Table::update_neighbours(deque<Link*> lks) {
     }
     return recompute_table();
 }
+*/
 
 bool Table::update_neighbour(unsigned num, double direct_dis) {
     // this function do not check
@@ -152,8 +153,8 @@ bool Table::recompute_table() {
     return flag;
 }
 
-int Table::get_next_hop(unsigned n) const {
-    // return -1 when unreachable
+unsigned Table::get_next_hop(unsigned n) const {
+    // return my self id when unreachable
     return next_hop[n];
 }
 

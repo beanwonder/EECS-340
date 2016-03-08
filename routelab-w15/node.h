@@ -27,7 +27,6 @@ class Node {
 #endif
 
 #if defined(DISTANCEVECTOR)
-    class Table;
     Table route_table;
 #endif
 

@@ -1,13 +1,11 @@
 #ifndef _table
 #define _table
 
-
 #include <iostream>
 #include <vector>
 #include <deque>
 
-#include "node.h"
-#include "messages.h"
+// #include "messages.h"
 
 using namespace std;
 
@@ -19,7 +17,6 @@ class Table {
 };
 #endif
 
-
 #if defined(LINKSTATE)
 class Table {
   // Students should write this class
@@ -29,8 +26,6 @@ class Table {
 #endif
 
 #if defined(DISTANCEVECTOR)
-class Table;
-
 class Table {
     private:
         // indexed by number
@@ -53,12 +48,11 @@ class Table {
 
         bool update_table_with_dv(unsigned src, vector<double> dv);
         bool update_neighbour(unsigned n, double d);
-        bool update_neighbours(deque<Link*> lks);
+        // bool update_neighbours(deque<Link*> lks);
 
-        int get_next_hop(unsigned n) const;
+        unsigned get_next_hop(unsigned n) const;
         vector<double> get_my_dv() const;
 };
-
 #endif
 
 inline ostream & operator<<(ostream &os, const Table &t) { return t.Print(os);}
