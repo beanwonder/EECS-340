@@ -2,7 +2,9 @@
 #define _table
 
 
+
 #include <iostream>
+#include <map>
 
 using namespace std;
 
@@ -17,9 +19,19 @@ class Table {
 
 
 #if defined(LINKSTATE)
+class Topology;
+class Node;
+#include "topology.h"
+
 class Table {
-  // Students should write this class
+ private:
+  // stores graph topology
+  map<Node *, map<Node *, Link>> g;
+  // sequence-number-controlled flooding
+  map<Link, size_t> seq;
+
  public:
+  void update_route_table(Link l);
   ostream & Print(ostream &os) const;
 };
 #endif

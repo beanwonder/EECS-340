@@ -15,6 +15,9 @@ struct RoutingMessage {
 
 #if defined(LINKSTATE)
 struct RoutingMessage {
+  
+  size_t seq;
+  Link   link;
 
   RoutingMessage();
   RoutingMessage(const RoutingMessage &rhs);

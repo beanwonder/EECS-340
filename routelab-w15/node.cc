@@ -125,16 +125,21 @@ void Node::TimeOut()
   cerr << *this << " got a timeout: ignored"<<endl;
 }
 
-Node *Node::GetNextHop(const Node *destination) const
+// compliance with DV algorithm
+// Node *Node::GetNextHop(const Node *destination) const
+Node *Node::GetNextHop(const Node *destination)
 {
-  // WRITE
-  return 0;
+  if (table.rt.count(destination)) {
+    return table.rt[destination];
+  } else {
+    err << "[ERROR] GetNextHop: Unknown Node\n";
+    return nullptr;
+  }
 }
 
 Table *Node::GetRoutingTable() const
 {
-  // WRITE
-  return 0;
+  return &table;
 }
 
 
