@@ -13,7 +13,6 @@ ostream &RoutingMessage::Print(ostream &os) const
 #if defined(LINKSTATE)
 ostream &RoutingMessage::Print(ostream &os) const
 {
-  cout << "[ROUTING MESSAGE]:\n\tSequence Number: " << seq "\n\t" << link << "\n";
   return os;
 }
 

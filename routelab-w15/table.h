@@ -20,6 +20,9 @@ class Table {
 #endif
 
 #if defined(LINKSTATE)
+#include "node.h"
+class Node;
+
 class Table {
  private:
   // stores graph topology

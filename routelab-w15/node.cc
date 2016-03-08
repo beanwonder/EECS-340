@@ -60,12 +60,30 @@ Node::~Node()
 // so that the corresponding node can recieve the ROUTING_MESSAGE_ARRIVAL event at the proper time
 void Node::SendToNeighbors(const RoutingMessage *m)
 {
-    cerr << "send to neighbors not implemented \n";
+  deque<Node *> * neighbors = GetNeighbors();
+  deque<Node *>::iterator iter;
+  for (iter = neighbors->begin(); iter != neighbors->end(); ++iter) {
+    SendToNeighbor(*iter, new RoutingMessage(*m));
+  }
 }
 
 void Node::SendToNeighbor(const Node *n, const RoutingMessage *m)
 {
-    cerr << "send to neighbors not implemented \n";
+  deque<Link *> * links = context->GetOutgoingLinks(this);
+  deque<Link *>::iterator iter;
+  Link link_pattern;
+  link_pattern.SetSrc(number);
+  link_pattern.SetDest(n->number);
+  for (iter = links->begin(); iter != links->end(); ++iter) {
+    if ((*iter)->Matches(link_pattern)) {
+      Event * e = new Event (context->GetTime() + (*iter)->GetLatency(),
+                             ROUTING_MESSAGE_ARRIVAL,
+                             // maybe we do not need to new a node here
+                             new Node(*n),
+                             (void *) new RoutingMessage(*m));
+      context->PostEvent(e);
+    }
+  }
 }
 
 deque<Node*> *Node::GetNeighbors()
@@ -147,17 +165,12 @@ void Node::TimeOut()
 // Node *Node::GetNextHop(const Node *destination) const
 Node *Node::GetNextHop(const Node *destination)
 {
-  if (table.rt.count(destination)) {
-    return table.rt[destination];
-  } else {
-    err << "[ERROR] GetNextHop: Unknown Node\n";
-    return nullptr;
-  }
+  return NULL;
 }
 
 Table *Node::GetRoutingTable() const
 {
-  return &table;
+  return NULL;
 }
 
 
