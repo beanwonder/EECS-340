@@ -12,6 +12,7 @@ class Link;
 class SimulationContext;
 
 #include "table.h"
+#include "messages.h"
 
 using namespace std;
 
@@ -27,6 +28,7 @@ class Node {
 #endif
 
 #if defined(DISTANCEVECTOR)
+    Table route_table;
 #endif
 
   // students will add protocol-specific data here
@@ -59,7 +61,7 @@ class Node {
   virtual void LinkHasBeenUpdated(const Link *l);
   virtual void ProcessIncomingRoutingMessage(const RoutingMessage *m);
   virtual void TimeOut();
-  virtual Node *GetNextHop(const Node *destination) const;
+  virtual Node *GetNextHop(const Node *destination);
   virtual Table *GetRoutingTable() const;
 
   virtual ostream & Print(ostream &os) const;

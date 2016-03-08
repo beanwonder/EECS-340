@@ -17,11 +17,11 @@ int main(int argc, char **argv)
   singlestep=(argc==4);
   topofile=argv[1];
   eventfile=argv[2];
-  
+
   SimulationContext c;
 
   c.LoadTopology(topofile);
-  
+
   //cerr << c <<endl;
 
   c.LoadEvents(eventfile);
@@ -29,7 +29,7 @@ int main(int argc, char **argv)
   c.Init();
 
   //cerr << c << endl;
-  
+
   cerr << setprecision(20);
 
   Event *e;
@@ -39,14 +39,14 @@ int main(int argc, char **argv)
 	   << "======Dispatching: "<<*e << endl;
     }
     c.DispatchEvent(e);
-    if (singlestep) { 
+    if (singlestep) {
       char buf[1024];
-      cerr << "======Done. Hit Enter to continue"; 
+      cerr << "======Done. Hit Enter to continue";
       fflush(stdin);
       fgets(buf,1024,stdin);
 
     }
   }
 }
-  
-  
+
+
