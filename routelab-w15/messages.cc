@@ -28,11 +28,10 @@ RoutingMessage::RoutingMessage(const RoutingMessage &rhs)
 ostream &RoutingMessage::Print(ostream &os) const
 {
 
-    os << "routing message from router No: " << src;
+    os << "routing message from " << src << ": ";
     for (unsigned i=0; i < dv.size(); ++i) {
         os << dv[i] << ' ';
     }
-    os << '\n';
     return os;
 }
 

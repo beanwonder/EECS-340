@@ -47,14 +47,16 @@ ostream& Table::Print(ostream &os) const {
     for (size_t i = 0; i < dv_table.size(); i++) {
         cout << i << ":    ";
         for (size_t j = 0; j < dv_table[i].size(); ++j) {
-            if (std::isinf(dv_table[i][j])) {
-                os << "inf    ";
-            } else {
-                os << dv_table[i][j] << "    ";
-            }
+            os << dv_table[i][j] << "    ";
         }
         os << '\n';
     }
+
+    os << "direct cost:\n";
+    for (size_t i = 0; i < direct_cost.size(); i++) {
+        os << direct_cost[i] << ' ';
+    }
+    os << '\n';
 
     os << "next hop:\n";
     for (size_t i = 0; i < next_hop.size(); i++) {
@@ -129,13 +131,15 @@ bool Table::recompute_table() {
         if (i == number) {
             continue;
         }
+
         double min_dis = std::numeric_limits<double>::infinity();
-        int nhop = -1;
+        // nhop == i no where next jump
+        unsigned nhop = number;
         for (unsigned idx = 0; idx < num_nodes; idx++) {
             if (idx == number) {
                 continue;
             }
-            int d_xv = direct_cost[idx];
+            double d_xv = direct_cost[idx];
             if (!isinf(d_xv)) {
                 // is neighbour
                 if (d_xv + dv_table[idx][i] < min_dis) {
@@ -144,12 +148,14 @@ bool Table::recompute_table() {
                 }
             }
         }
+
         if (dv_table[number][i] != min_dis) {
             flag = true;
         }
         dv_table[number][i] = min_dis;
         next_hop[i] = nhop;
     }
+
     return flag;
 }
 

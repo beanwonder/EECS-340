@@ -32,39 +32,30 @@ void Event::Dispatch()
     break;
 #endif
   case ADD_NODE:
-    cerr << "add node\n";
     ((Topology*)handler)->AddNode((Node*)data);
     break;
   case DELETE_NODE:
-    cerr << "add node\n";
     ((Topology*)handler)->DeleteNode((Node*)data);
     break;
   case ADD_LINK:
-    cerr << "add node\n";
     ((Topology*)handler)->AddLink((Link*)data);
     break;
   case DELETE_LINK:
-    cerr << "add node\n";
     ((Topology*)handler)->DeleteLink((Link*)data);
     break;
   case CHANGE_NODE:
-    cerr << "add node\n";
     ((Topology*)handler)->ChangeNode((Node*)data);
     break;
   case CHANGE_LINK:
-    cerr << "add node\n";
     ((Topology*)handler)->ChangeLink((Link*)data);
     break;
   case TIMEOUT:
-    cerr << "add node\n";
     ((Node*)handler)->TimeOut();
     break;
   case ROUTING_MESSAGE_ARRIVAL:
-    cerr << "add node\n";
     ((Node*)handler)->ProcessIncomingRoutingMessage((RoutingMessage*)data);
     break;
   case PRINT:
-    cerr << "add node\n";
     cout << ((char*) data);
     break;
   default:

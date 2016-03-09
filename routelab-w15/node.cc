@@ -3,7 +3,7 @@
 #include "error.h"
 
 #if defined(DISTANCEVECTOR)
-#define MAX_NODES 256
+#define MAX_NODES 4
 #endif
 
 Node::Node(const unsigned n, SimulationContext *c, double b, double l) :
@@ -188,7 +188,7 @@ void Node::LinkHasBeenUpdated(const Link *l)
 {
     // update our table
     // send out routing mesages
-    cerr << *this<<": Link Update: "<<*l<<endl;
+    cerr << *this << ": Link Update: " << *l << '\n';
     bool changed = route_table.update_neighbour(l->GetDest(), l->GetLatency());
     if (changed) {
         RoutingMessage msg(number, route_table.get_my_dv());
@@ -199,6 +199,7 @@ void Node::LinkHasBeenUpdated(const Link *l)
 
 void Node::ProcessIncomingRoutingMessage(const RoutingMessage *m)
 {
+    cerr << *this << ": RtMsg: " << *m << '\n';
     bool changed = route_table.update_table_with_dv(m->src, m->dv);
     if (changed) {
         RoutingMessage msg(number, route_table.get_my_dv());
@@ -223,6 +224,8 @@ Node *Node::GetNextHop(const Node *destination)
             }
         }
         // if not find that's a mistake throws a exception
+        cerr << "no matching for next hop for: \n";
+        cerr << route_table;
         throw GeneralException();
     } else {
         // next hop is my self !!!
