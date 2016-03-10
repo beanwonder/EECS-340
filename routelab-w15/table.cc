@@ -11,6 +11,13 @@ ostream & Table::Print(ostream &os) const
 
 #if defined(LINKSTATE)
 
+#include <cassert>
+
+Table::Table() {}
+
+Table::Table(const Table &rhs)
+  : g(rhs.g), seq(rhs.seq), rt(rhs.rt) {}
+
 #endif
 
 #if defined(DISTANCEVECTOR)

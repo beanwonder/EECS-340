@@ -26,12 +26,22 @@ class Node;
 class Table {
  private:
   // stores graph topology
-  map<Node *, map<Node *, Link>> g;
+  map<unsigned, map<unsigned, Link>> g;
   // sequence-number-controlled flooding
-  map<Link, size_t> seq;
+  map<Link, unsigned> seq;
+  // route table
+  map<unsigned, unsigned> rt;
 
  public:
+  Table();
+  Table(const Table &rhs);
+  // add or update link info stored in g
+  // as well as the route table
+  // will broadcast this link update info
   void update_route_table(Link l);
+
+  //
+  //Node * get_next_hop(Node * node);
   ostream & Print(ostream &os) const;
 };
 #endif
