@@ -20,13 +20,12 @@ class Table {
 #endif
 
 #if defined(LINKSTATE)
-#include "node.h"
-class Node;
+#include "link.h"
 
 class Table {
  private:
   // stores graph topology
-  map<unsigned, map<unsigned, Link>> g;
+  map<unsigned, map<unsigned, Link> > g;
   // sequence-number-controlled flooding
   map<Link, unsigned> seq;
   // route table
@@ -41,7 +40,8 @@ class Table {
   void update_route_table(Link l);
 
   //
-  //Node * get_next_hop(Node * node);
+  bool have_next_hop(unsigned node_id);
+  unsigned get_next_hop(unsigned node_id);
   ostream & Print(ostream &os) const;
 };
 #endif

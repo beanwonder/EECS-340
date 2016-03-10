@@ -24,6 +24,7 @@ class Node {
   double   lat;
 
 #if defined(LINKSTATE)
+  Table route_table;
 #endif
 
 #if defined(DISTANCEVECTOR)

@@ -143,7 +143,7 @@ ostream & Node::Print(ostream &os) const
 #endif
 
 #if defined(LINKSTATE)
-
+#include <cassert>
 
 void Node::LinkHasBeenUpdated(const Link *l)
 {
@@ -165,12 +165,26 @@ void Node::TimeOut()
 // Node *Node::GetNextHop(const Node *destination) const
 Node *Node::GetNextHop(const Node *destination)
 {
+  assert(route_table.have_next_hop(destination->GetNumber()));
+  unsigned next_id = route_table.get_next_hop(destination->GetNumber());
+  assert(next_id != number);
+  Node * next_node = NULL;
+
+  deque<Node *> *neighbors = GetNeighbors();
+  for (deque<Node *>::iterator it = neighbors->begin();
+       it != neighbors->end(); ++it) {
+    if ((*it)->number == next_id) {
+      cout << "[GetNextHop] node_id: " << (*it)->number << "\n";
+      return next_node = new Node(*(*it));
+    }
+  }
+  assert(false);
   return NULL;
 }
 
 Table *Node::GetRoutingTable() const
 {
-  return NULL;
+  return new Table(route_table);
 }
 
 

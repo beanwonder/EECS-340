@@ -18,6 +18,16 @@ Table::Table() {}
 Table::Table(const Table &rhs)
   : g(rhs.g), seq(rhs.seq), rt(rhs.rt) {}
 
+bool Table::have_next_hop(unsigned node_id)
+{
+  return rt.count(node_id) == 1;
+}
+
+unsigned Table::get_next_hop(unsigned node_id)
+{
+  return rt[node_id];
+}
+
 #endif
 
 #if defined(DISTANCEVECTOR)
