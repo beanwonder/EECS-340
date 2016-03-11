@@ -148,6 +148,31 @@ ostream & Node::Print(ostream &os) const
 void Node::LinkHasBeenUpdated(const Link *l)
 {
   cerr << *this<<": Link Update: "<<*l<<endl;
+  // check src
+  assert(l->GetSrc() == number);
+  assert(route_table.g.count(l->GetSrc()) == 1);
+  // check dest
+  // new node
+  if (route_table.g.count(l->GetDest()) == 0) {
+    assert(route_table.g[l->GetSrc()].count(l->GetDest()) == 0);
+    cout << "New node: " << l->GetDest() << "discovered.\n";
+    route_table.g[l->GetDest()];
+    assert(route_table.rt.count(l->GetDest()) == 0);
+    route_table.rt[l->GetDest()];
+  }
+  // link
+  if (route_table.g[l->GetSrc()].count(l->GetDest()) == 0) {
+    cout << "New link: " << *l << "discovered.\n";
+  } else {
+    cout << "Link Update: " << *l << "discovered.\n";
+  }
+  Table::Record r(l->GetSrc(), l->GetDest(), l->GetBW(), l->GetLatency());
+  route_table.g[l->GetSrc()][l->GetDest()] = r;
+  // send Routing Messge to nerghbors
+  unsigned seq_num = route_table.g[l->GetSrc()][l->GetDest()].seq + 1;
+  RoutingMessage *message = new RoutingMessage(number, seq_num, *l);
+  SendToNeighbors(message);
+  route_table.g[l->GetSrc()][l->GetDest()].seq = seq_num;
 }
 
 
@@ -174,7 +199,7 @@ Node *Node::GetNextHop(const Node *destination)
   for (deque<Node *>::iterator it = neighbors->begin();
        it != neighbors->end(); ++it) {
     if ((*it)->number == next_id) {
-      cout << "[GetNextHop] node_id: " << (*it)->number << "\n";
+      cout << "[GetNextHop] from: " << number << " to: " << (*it)->number << "\n";
       return next_node = new Node(*(*it));
     }
   }

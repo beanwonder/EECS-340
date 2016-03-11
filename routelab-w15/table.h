@@ -23,11 +23,19 @@ class Table {
 #include "link.h"
 
 class Table {
- private:
+ //private:
+ public:
+ struct Record {
+   unsigned src, dest;
+   double bw;
+   double lat;
+   unsigned seq;
+   Record() {}
+   Record(unsigned src, unsigned dest, double bw, double lat)
+     : src(src), dest(dest), bw(bw), lat(lat) { }
+ };
   // stores graph topology
-  map<unsigned, map<unsigned, Link> > g;
-  // sequence-number-controlled flooding
-  map<Link, unsigned> seq;
+  map<unsigned, map<unsigned, Record> > g;
   // route table
   map<unsigned, unsigned> rt;
 
@@ -37,8 +45,7 @@ class Table {
   // add or update link info stored in g
   // as well as the route table
   // will broadcast this link update info
-  void update_route_table(Link l);
-
+  void update_route_table(Link &l);
   //
   bool have_next_hop(unsigned node_id);
   unsigned get_next_hop(unsigned node_id);
