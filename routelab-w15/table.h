@@ -40,7 +40,8 @@ class Table {
   map<unsigned, unsigned> rt;
 
  public:
-  Table();
+  Table() {};
+  Table(unsigned number);
   Table(const Table &rhs);
   // add or update link info stored in g
   // as well as the route table

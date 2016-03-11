@@ -13,7 +13,11 @@ ostream & Table::Print(ostream &os) const
 
 #include <cassert>
 
-Table::Table() {}
+Table::Table(unsigned number)
+{
+  g = map<unsigned, map<unsigned, Record>> ();
+  g[number];
+}
 
 Table::Table(const Table &rhs)
   : g(rhs.g), rt(rhs.rt) {}
@@ -32,6 +36,7 @@ ostream &Table::Print(ostream &os) const
 {
   os << "\n[INFO] Table\n";
   //os << "route table: " << rt << "\n";
+  return os;
 }
 
 #endif

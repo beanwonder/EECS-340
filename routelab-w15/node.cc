@@ -12,6 +12,10 @@ Node::Node(const unsigned n, SimulationContext *c, double b, double l) :
     #if defined(DISTANCEVECTOR)
     route_table = Table(n, MAX_NODES);
     #endif
+
+    #if defined(LINKSTATE)
+    route_table = Table(n);
+    #endif
 }
 
 Node::Node()
@@ -20,9 +24,7 @@ Node::Node()
 Node::Node(const Node &rhs) :
   number(rhs.number), context(rhs.context), bw(rhs.bw), lat(rhs.lat)
 {
-    #if defined(DISTANCEVECTOR)
     route_table = Table(rhs.route_table);
-    #endif
 }
 
 Node & Node::operator=(const Node &rhs)
@@ -33,10 +35,8 @@ Node & Node::operator=(const Node &rhs)
 void Node::SetNumber(const unsigned n)
 {
     number=n;
-    #if defined(DISTANCEVECTOR)
-    cerr << "FOR DISTANCE VECTOR number is unique assigned and can not be changed\n";
+    cerr << "number is unique assigned and can not be changed\n";
     throw GeneralException();
-    #endif
 }
 unsigned Node::GetNumber() const
 { return number;}
