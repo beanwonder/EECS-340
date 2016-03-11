@@ -164,7 +164,7 @@ void Node::LinkHasBeenUpdated(const Link *l)
   if (route_table.g[l->GetSrc()].count(l->GetDest()) == 0) {
     cout << "New link: " << *l << "discovered.\n";
   } else {
-    cout << "Link Update: " << *l << "discovered.\n";
+    cout << "Link Update: " << *l << "\n";
   }
   Table::Record r(l->GetSrc(), l->GetDest(), l->GetBW(), l->GetLatency());
   route_table.g[l->GetSrc()][l->GetDest()] = r;
@@ -179,6 +179,32 @@ void Node::LinkHasBeenUpdated(const Link *l)
 void Node::ProcessIncomingRoutingMessage(const RoutingMessage *m)
 {
   cerr << *this << " Routing Message: "<<*m;
+  if (route_table.g[m->link.GetSrc()][m->link.GetDest()].seq == m->seq) {
+    cout << "[INFO] discarding flooding routing message\n";
+  } else {
+    if (route_table.g.count(m->link.GetSrc()) == 0) {
+      cout << "New node: " << m->link.GetSrc() << "discovered.\n";
+      route_table.g[m->link.GetSrc()];
+      assert(route_table.rt.count(m->link.GetSrc()) == 0);
+      route_table.rt[m->link.GetDest()];
+    }
+    if (route_table.g.count(m->link.GetDest()) == 0) {
+      cout << "New node: " << m->link.GetDest() << "discovered.\n";
+      route_table.g[m->link.GetDest()];
+      assert(route_table.rt.count(m->link.GetDest()) == 0);
+      route_table.rt[m->link.GetDest()];
+    }
+    if (route_table.g[m->link.GetSrc()].count(m->link.GetDest()) == 0) {
+      cout << "New link: " << m->link << "discovered.\n";
+    } else {
+      cout << "Link update: " << m->link << "\n";
+    }
+    Table::Record r(m->link.GetSrc(), m->link.GetDest(), m->link.GetBW(), m->link.GetLatency());
+    route_table.g[m->link.GetSrc()][m->link.GetDest()] = r;
+    SendToNeighbors(m);
+    route_table.g[m->link.GetSrc()][m->link.GetDest()].seq = m->seq;
+  }
+  return;
 }
 
 void Node::TimeOut()

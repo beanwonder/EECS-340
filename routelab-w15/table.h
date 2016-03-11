@@ -32,7 +32,7 @@ class Table {
    unsigned seq;
    Record() {}
    Record(unsigned src, unsigned dest, double bw, double lat)
-     : src(src), dest(dest), bw(bw), lat(lat) { }
+     : src(src), dest(dest), bw(bw), lat(lat), seq(0) { }
  };
   // stores graph topology
   map<unsigned, map<unsigned, Record> > g;
