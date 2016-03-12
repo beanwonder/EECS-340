@@ -82,6 +82,7 @@ void Node::SendToNeighbor(const Node *n, const RoutingMessage *m)
                              new Node(*n),
                              (void *) new RoutingMessage(*m));
       context->PostEvent(e);
+      break;
     }
   }
 }
@@ -203,22 +204,29 @@ void Node::LinkHasBeenUpdated(const Link *l)
     // update our table
     // send out routing mesages
     cerr << *this << ": Link Update: " << *l << '\n';
+    cerr << "dest" << l->GetDest() << " Latency: " << l->GetLatency() << ' ' << '\n';
+    cerr << "before: \n" << route_table;
     bool changed = route_table.update_neighbour(l->GetDest(), l->GetLatency());
     if (changed) {
-        RoutingMessage msg(number, route_table.get_my_dv());
-        SendToNeighbors(&msg);
+        // RoutingMessage msg(number, route_table.get_my_dv());
+        SendToNeighbors(new RoutingMessage(number, route_table.get_my_dv()));
     }
+    cerr << "after: \n" << route_table;
 }
 
 
 void Node::ProcessIncomingRoutingMessage(const RoutingMessage *m)
 {
     cerr << *this << ": RtMsg: " << *m << '\n';
+    cerr << "table before: \n";
+    cerr << route_table;
     bool changed = route_table.update_table_with_dv(m->src, m->dv);
     if (changed) {
-        RoutingMessage msg(number, route_table.get_my_dv());
-        SendToNeighbors(&msg);
+        // RoutingMessage msg(number, route_table.get_my_dv());
+        SendToNeighbors(new RoutingMessage(number, route_table.get_my_dv()));
     }
+    cerr << "table after: \n";
+    cerr << route_table;
 }
 
 void Node::TimeOut()
