@@ -13,15 +13,21 @@ ostream &RoutingMessage::Print(ostream &os) const
 #if defined(LINKSTATE)
 ostream &RoutingMessage::Print(ostream &os) const
 {
+  os << "\n[INFO] Routing Message\n";
+  os << "sender: " << sender << "\n";
+  os << "seqence number: " << seq << "\n";
+  os << "link: " << link << "\n";
   return os;
 }
 
 RoutingMessage::RoutingMessage()
 {}
 
+RoutingMessage::RoutingMessage(unsigned sender, unsigned seq, Link link)
+  : sender(sender), seq(seq), link(link) { }
 
 RoutingMessage::RoutingMessage(const RoutingMessage &rhs)
-  : seq(rhs.seq), link(rhs.link) {}
+  : sender(rhs.sender), seq(rhs.seq), link(rhs.link) { }
 #endif
 
 #if defined(DISTANCEVECTOR)

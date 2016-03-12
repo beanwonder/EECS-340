@@ -16,14 +16,14 @@ struct RoutingMessage {
 #if defined(LINKSTATE)
 struct RoutingMessage {
   
-  size_t seq;
+  unsigned sender;
+  unsigned seq;
   Link   link;
 
-    RoutingMessage();
-    RoutingMessage(unsigned src, vector<double> &dv);
-    RoutingMessage(const RoutingMessage &rhs);
-    RoutingMessage &operator=(const RoutingMessage &rhs);
-    ostream & Print(ostream &os) const;
+  RoutingMessage();
+  RoutingMessage(unsigned sender, unsigned seq, Link link);
+  RoutingMessage(const RoutingMessage &rhs);
+  ostream & Print(ostream &os) const;
 
 };
 #endif

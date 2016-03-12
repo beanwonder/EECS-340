@@ -12,6 +12,10 @@ Node::Node(const unsigned n, SimulationContext *c, double b, double l) :
     #if defined(DISTANCEVECTOR)
     route_table = Table(n, MAX_NODES);
     #endif
+
+    #if defined(LINKSTATE)
+    route_table = Table(n);
+    #endif
 }
 
 Node::Node()
@@ -20,9 +24,7 @@ Node::Node()
 Node::Node(const Node &rhs) :
   number(rhs.number), context(rhs.context), bw(rhs.bw), lat(rhs.lat)
 {
-    #if defined(DISTANCEVECTOR)
     route_table = Table(rhs.route_table);
-    #endif
 }
 
 Node & Node::operator=(const Node &rhs)
@@ -33,10 +35,8 @@ Node & Node::operator=(const Node &rhs)
 void Node::SetNumber(const unsigned n)
 {
     number=n;
-    #if defined(DISTANCEVECTOR)
-    cerr << "FOR DISTANCE VECTOR number is unique assigned and can not be changed\n";
+    cerr << "number is unique assigned and can not be changed\n";
     throw GeneralException();
-    #endif
 }
 unsigned Node::GetNumber() const
 { return number;}
@@ -60,15 +60,19 @@ Node::~Node()
 // so that the corresponding node can recieve the ROUTING_MESSAGE_ARRIVAL event at the proper time
 void Node::SendToNeighbors(const RoutingMessage *m)
 {
+  /*
   deque<Node *> * neighbors = GetNeighbors();
   deque<Node *>::iterator iter;
   for (iter = neighbors->begin(); iter != neighbors->end(); ++iter) {
     SendToNeighbor(*iter, new RoutingMessage(*m));
   }
+  */
+  context->SendToNeighbors(this, m);
 }
 
 void Node::SendToNeighbor(const Node *n, const RoutingMessage *m)
 {
+  /*
   deque<Link *> * links = context->GetOutgoingLinks(this);
   deque<Link *>::iterator iter;
   Link link_pattern;
@@ -85,6 +89,8 @@ void Node::SendToNeighbor(const Node *n, const RoutingMessage *m)
       break;
     }
   }
+  */
+  context->SendToNeighbor(this, n, m);
 }
 
 deque<Node*> *Node::GetNeighbors()
@@ -149,12 +155,72 @@ ostream & Node::Print(ostream &os) const
 void Node::LinkHasBeenUpdated(const Link *l)
 {
   cerr << *this<<": Link Update: "<<*l<<endl;
+  // check src
+  assert(l->GetSrc() == number);
+  assert(route_table.g.count(l->GetSrc()) == 1);
+  // check dest
+  // new node
+  if (route_table.g.count(l->GetDest()) == 0) {
+    assert(route_table.g[l->GetSrc()].count(l->GetDest()) == 0);
+    cout << "New node: " << l->GetDest() << "discovered.\n";
+    route_table.g[l->GetDest()];
+    assert(route_table.rt.count(l->GetDest()) == 0);
+    route_table.rt[l->GetDest()];
+  }
+  // link
+  if (route_table.g[l->GetSrc()].count(l->GetDest()) == 0) {
+    cout << "New link: " << *l << "discovered.\n";
+  } else {
+    cout << "Link Update: " << *l << "\n";
+  }
+  Table::Record r(l->GetSrc(), l->GetDest(), l->GetBW(), l->GetLatency());
+  route_table.g[l->GetSrc()][l->GetDest()] = r;
+  cout << route_table << "\n";
+  // send Routing Messge to nerghbors
+  unsigned seq_num = route_table.g[l->GetSrc()][l->GetDest()].seq + 1;
+  RoutingMessage *message = new RoutingMessage(number, seq_num, *l);
+  SendToNeighbors(message);
+  route_table.g[l->GetSrc()][l->GetDest()].seq = seq_num;
 }
 
 
 void Node::ProcessIncomingRoutingMessage(const RoutingMessage *m)
 {
   cerr << *this << " Routing Message: "<<*m;
+  cout << route_table << "\n";
+  if (route_table.g.count(m->link.GetSrc()) == 0) {
+    cout << "New node: " << m->link.GetSrc() << "discovered.\n";
+    route_table.g[m->link.GetSrc()];
+    assert(route_table.rt.count(m->link.GetSrc()) == 0);
+    route_table.rt[m->link.GetDest()];
+  }
+  if (route_table.g.count(m->link.GetDest()) == 0) {
+    cout << "New node: " << m->link.GetDest() << "discovered.\n";
+    route_table.g[m->link.GetDest()];
+    assert(route_table.rt.count(m->link.GetDest()) == 0);
+    route_table.rt[m->link.GetDest()];
+  }
+  if (route_table.g[m->link.GetSrc()].count(m->link.GetDest()) == 0) {
+    cout << "New link: " << m->link << "discovered.\n";
+    Table::Record r(m->link.GetSrc(), m->link.GetDest(), m->link.GetBW(), m->link.GetLatency());
+    route_table.g[m->link.GetSrc()][m->link.GetDest()] = r;
+    SendToNeighbors(m);
+    route_table.g[m->link.GetSrc()][m->link.GetDest()].seq = m->seq;
+    cout << route_table << "\n";
+  } else {
+    if (route_table.g[m->link.GetSrc()][m->link.GetDest()].seq == m->seq) {
+      cout << "Discarding duplicated routing message...";
+    } else {
+      cout << "Link update: " << m->link << "\n";
+      Table::Record r(m->link.GetSrc(), m->link.GetDest(), m->link.GetBW(), m->link.GetLatency());
+      route_table.g[m->link.GetSrc()][m->link.GetDest()] = r;
+      SendToNeighbors(m);
+      route_table.g[m->link.GetSrc()][m->link.GetDest()].seq = m->seq;
+      cout << route_table << "\n";
+    }
+  }
+  cout << route_table << "\n";
+  return;
 }
 
 void Node::TimeOut()
@@ -175,7 +241,7 @@ Node *Node::GetNextHop(const Node *destination)
   for (deque<Node *>::iterator it = neighbors->begin();
        it != neighbors->end(); ++it) {
     if ((*it)->number == next_id) {
-      cout << "[GetNextHop] node_id: " << (*it)->number << "\n";
+      cout << "[GetNextHop] from: " << number << " to: " << (*it)->number << "\n";
       return next_node = new Node(*(*it));
     }
   }
