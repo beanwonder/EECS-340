@@ -33,6 +33,8 @@ class Table {
    Record() {}
    Record(unsigned src, unsigned dest, double bw, double lat)
      : src(src), dest(dest), bw(bw), lat(lat), seq(0) { }
+   ostream & Print(ostream &os) const;
+   
  };
   // stores graph topology
   map<unsigned, map<unsigned, Record> > g;
@@ -52,6 +54,11 @@ class Table {
   unsigned get_next_hop(unsigned node_id);
   ostream & Print(ostream &os) const;
 };
+
+inline ostream & operator<<(ostream &os, const Table::Record &r)
+{
+  return r.Print(os);
+}
 #endif
 
 #if defined(DISTANCEVECTOR)

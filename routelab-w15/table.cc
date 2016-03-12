@@ -13,6 +13,13 @@ ostream & Table::Print(ostream &os) const
 
 #include <cassert>
 
+ostream &Table::Record::Print(ostream &os) const
+{
+  os << "(src: " << src << " dest: " << dest << " bw: " << bw
+     << " lat: " << lat << " seq: " << seq << ")";
+  return os;
+}
+
 Table::Table(unsigned number)
 {
   g = map<unsigned, map<unsigned, Record>> ();
@@ -35,7 +42,16 @@ unsigned Table::get_next_hop(unsigned node_id)
 ostream &Table::Print(ostream &os) const
 {
   os << "\n[INFO] Table\n";
-  //os << "route table: " << rt << "\n";
+  os << "route table:\n";
+  for (auto it = rt.begin(); it != rt.end(); ++it) {
+    os << it->first << " => " << it->second << "\n";
+  }
+  for (auto it = g.begin(); it != g.end(); ++it) {
+    os << it->first << ":\n";
+    for (auto it2 = (it->second).begin(); it2 != (it->second.end()); ++it2) {
+      os << "\t" << it2->first << " => " << it2->second << ",\n";
+    }
+  }
   return os;
 }
 
