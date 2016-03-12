@@ -46,6 +46,7 @@ ostream &Table::Print(ostream &os) const
   for (auto it = rt.begin(); it != rt.end(); ++it) {
     os << it->first << " => " << it->second << "\n";
   }
+  os << "system topology:\n";
   for (auto it = g.begin(); it != g.end(); ++it) {
     os << it->first << ":\n";
     for (auto it2 = (it->second).begin(); it2 != (it->second.end()); ++it2) {
