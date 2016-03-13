@@ -30,9 +30,9 @@ class Table {
    double bw;
    double lat;
    unsigned seq;
-   Record() {}
-   Record(unsigned src, unsigned dest, double bw, double lat)
-     : src(src), dest(dest), bw(bw), lat(lat), seq(0) { }
+   //Record() {}
+   Record(unsigned src, unsigned dest, double bw, double lat, unsigned seq)
+     : src(src), dest(dest), bw(bw), lat(lat), seq(seq) { }
    ostream & Print(ostream &os) const;
    
  };

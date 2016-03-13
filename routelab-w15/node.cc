@@ -165,19 +165,22 @@ void Node::LinkHasBeenUpdated(const Link *l)
   // link
   if (route_table.g[l->GetSrc()].count(l->GetDest()) == 0) {
     cout << "New link: " << *l << "discovered.\n";
+    Table::Record r(l->GetSrc(), l->GetDest(), l->GetBW(), l->GetLatency(), 100);
+    route_table.g[l->GetSrc()].insert(pair<unsigned, Table::Record>(l->GetDest(), r));
   } else {
     cout << "Link Update: " << *l << "\n";
+    unsigned seq_num = route_table.g.at(l->GetSrc()).at(l->GetDest()).seq;
+    Table::Record r(l->GetSrc(), l->GetDest(), l->GetBW(), l->GetLatency(), seq_num);
+    route_table.g.at(l->GetSrc()).at(l->GetDest()) = r;
   }
-  Table::Record r(l->GetSrc(), l->GetDest(), l->GetBW(), l->GetLatency());
-  route_table.g[l->GetSrc()][l->GetDest()] = r;
   //cout << route_table << "\n";
   UpdateRouteTable();
   cout << route_table << "\n";
   // send Routing Messge to nerghbors
-  unsigned seq_num = route_table.g[l->GetSrc()][l->GetDest()].seq + 1;
+  //unsigned seq_num = ++(route_table.g[l->GetSrc()][l->GetDest()].seq);
+  unsigned seq_num = ++route_table.g.at(l->GetSrc()).at(l->GetDest()).seq;
   RoutingMessage *message = new RoutingMessage(number, seq_num, *l);
   SendToNeighbors(message);
-  route_table.g[l->GetSrc()][l->GetDest()].seq = seq_num;
 }
 
 
@@ -199,21 +202,25 @@ void Node::ProcessIncomingRoutingMessage(const RoutingMessage *m)
   }
   if (route_table.g[m->link.GetSrc()].count(m->link.GetDest()) == 0) {
     cout << "New link: " << m->link << "discovered.\n";
-    Table::Record r(m->link.GetSrc(), m->link.GetDest(), m->link.GetBW(), m->link.GetLatency());
-    route_table.g[m->link.GetSrc()][m->link.GetDest()] = r;
-    route_table.g[m->link.GetSrc()][m->link.GetDest()].seq = m->seq;
+    Table::Record r(m->link.GetSrc(), m->link.GetDest(), m->link.GetBW(), m->link.GetLatency(), m->seq);
+    //route_table.g[m->link.GetSrc()][m->link.GetDest()] = r;
+    route_table.g[m->link.GetSrc()].insert(pair<unsigned, Table::Record>(m->link.GetDest(), r));
     //cout << route_table << "\n";
     UpdateRouteTable();
     cout << route_table << "\n";
     SendToNeighbors(m);
   } else {
-    if (route_table.g[m->link.GetSrc()][m->link.GetDest()].seq == m->seq) {
+    //if (route_table.g[m->link.GetSrc()][m->link.GetDest()].seq == m->seq) {
+      if (route_table.g.at(m->link.GetSrc()).at(m->link.GetDest()).seq == m->seq) {
       cout << "Discarding duplicated routing message...\n";
     } else {
       cout << "Link update: " << m->link << "\n";
-      Table::Record r(m->link.GetSrc(), m->link.GetDest(), m->link.GetBW(), m->link.GetLatency());
-      route_table.g[m->link.GetSrc()][m->link.GetDest()] = r;
-      route_table.g[m->link.GetSrc()][m->link.GetDest()].seq = m->seq;
+      //route_table.g[m->link.GetSrc()][m->link.GetDest()].lat = m->link.GetLatency();
+      route_table.g.at(m->link.GetSrc()).at(m->link.GetDest()).lat = m->link.GetLatency();
+      //route_table.g[m->link.GetSrc()][m->link.GetDest()].bw = m->link.GetBW();
+      route_table.g.at(m->link.GetSrc()).at(m->link.GetDest()).bw = m->link.GetBW();
+      //route_table.g[m->link.GetSrc()][m->link.GetDest()].seq = m->seq;
+      route_table.g.at(m->link.GetSrc()).at(m->link.GetDest()).seq = m->seq;
       //cout << route_table << "\n";
       UpdateRouteTable();
       cout << route_table << "\n";
@@ -251,7 +258,8 @@ void Node::UpdateRouteTable()
        it != route_table.g[number].end(); ++it) {
     assert(cost.count(it->first) == 1);
     assert(route_table.g[number].count(it->first) == 1);
-    cost[it->first] = route_table.g[number][it->first].lat;
+    //cost[it->first] = route_table.g[number][it->first].lat;
+    cost[it->first] = route_table.g.at(number).at(it->first).lat;
     parent[it->first] = number;
   }
 
