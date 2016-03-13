@@ -25,13 +25,12 @@ class Node {
 
 #if defined(LINKSTATE)
   Table route_table;
+  void UpdateRouteTable();
 #endif
 
 #if defined(DISTANCEVECTOR)
     Table route_table;
 #endif
-
-  // students will add protocol-specific data here
 
  public:
   Node(const unsigned n, SimulationContext *c, double b, double l);

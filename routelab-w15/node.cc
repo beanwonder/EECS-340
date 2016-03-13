@@ -146,6 +146,7 @@ ostream & Node::Print(ostream &os) const
 
 #if defined(LINKSTATE)
 #include <cassert>
+#include <limits>
 
 void Node::LinkHasBeenUpdated(const Link *l)
 {
@@ -165,17 +166,22 @@ void Node::LinkHasBeenUpdated(const Link *l)
   // link
   if (route_table.g[l->GetSrc()].count(l->GetDest()) == 0) {
     cout << "New link: " << *l << "discovered.\n";
+    Table::Record r(l->GetSrc(), l->GetDest(), l->GetBW(), l->GetLatency(), 100);
+    route_table.g[l->GetSrc()].insert(pair<unsigned, Table::Record>(l->GetDest(), r));
   } else {
     cout << "Link Update: " << *l << "\n";
+    unsigned seq_num = route_table.g.at(l->GetSrc()).at(l->GetDest()).seq;
+    Table::Record r(l->GetSrc(), l->GetDest(), l->GetBW(), l->GetLatency(), seq_num);
+    route_table.g.at(l->GetSrc()).at(l->GetDest()) = r;
   }
-  Table::Record r(l->GetSrc(), l->GetDest(), l->GetBW(), l->GetLatency());
-  route_table.g[l->GetSrc()][l->GetDest()] = r;
+  //cout << route_table << "\n";
+  UpdateRouteTable();
   cout << route_table << "\n";
   // send Routing Messge to nerghbors
-  unsigned seq_num = route_table.g[l->GetSrc()][l->GetDest()].seq + 1;
+  //unsigned seq_num = ++(route_table.g[l->GetSrc()][l->GetDest()].seq);
+  unsigned seq_num = ++route_table.g.at(l->GetSrc()).at(l->GetDest()).seq;
   RoutingMessage *message = new RoutingMessage(number, seq_num, *l);
   SendToNeighbors(message);
-  route_table.g[l->GetSrc()][l->GetDest()].seq = seq_num;
 }
 
 
@@ -197,23 +203,107 @@ void Node::ProcessIncomingRoutingMessage(const RoutingMessage *m)
   }
   if (route_table.g[m->link.GetSrc()].count(m->link.GetDest()) == 0) {
     cout << "New link: " << m->link << "discovered.\n";
-    Table::Record r(m->link.GetSrc(), m->link.GetDest(), m->link.GetBW(), m->link.GetLatency());
-    route_table.g[m->link.GetSrc()][m->link.GetDest()] = r;
+    Table::Record r(m->link.GetSrc(), m->link.GetDest(), m->link.GetBW(), m->link.GetLatency(), m->seq);
+    //route_table.g[m->link.GetSrc()][m->link.GetDest()] = r;
+    route_table.g[m->link.GetSrc()].insert(pair<unsigned, Table::Record>(m->link.GetDest(), r));
+    //cout << route_table << "\n";
+    UpdateRouteTable();
+    cout << route_table << "\n";
     SendToNeighbors(m);
-    route_table.g[m->link.GetSrc()][m->link.GetDest()].seq = m->seq;
   } else {
-    if (route_table.g[m->link.GetSrc()][m->link.GetDest()].seq == m->seq) {
-      cout << "Discarding duplicated routing message...";
+    //if (route_table.g[m->link.GetSrc()][m->link.GetDest()].seq == m->seq) {
+      if (route_table.g.at(m->link.GetSrc()).at(m->link.GetDest()).seq == m->seq) {
+      cout << "Discarding duplicated routing message...\n";
     } else {
       cout << "Link update: " << m->link << "\n";
-      Table::Record r(m->link.GetSrc(), m->link.GetDest(), m->link.GetBW(), m->link.GetLatency());
-      route_table.g[m->link.GetSrc()][m->link.GetDest()] = r;
+      //route_table.g[m->link.GetSrc()][m->link.GetDest()].lat = m->link.GetLatency();
+      route_table.g.at(m->link.GetSrc()).at(m->link.GetDest()).lat = m->link.GetLatency();
+      //route_table.g[m->link.GetSrc()][m->link.GetDest()].bw = m->link.GetBW();
+      route_table.g.at(m->link.GetSrc()).at(m->link.GetDest()).bw = m->link.GetBW();
+      //route_table.g[m->link.GetSrc()][m->link.GetDest()].seq = m->seq;
+      route_table.g.at(m->link.GetSrc()).at(m->link.GetDest()).seq = m->seq;
+      //cout << route_table << "\n";
+      UpdateRouteTable();
+      cout << route_table << "\n";
       SendToNeighbors(m);
-      route_table.g[m->link.GetSrc()][m->link.GetDest()].seq = m->seq;
     }
   }
-  cout << route_table << "\n";
   return;
+}
+
+void Node::UpdateRouteTable()
+{
+  // clear the current route_table
+  route_table.rt.clear();
+
+  // Initialize data structure
+  map<unsigned, char> visited;
+  map<unsigned, double> cost;
+  map<unsigned, unsigned> parent;
+  unsigned counter = route_table.g.size() - 1;
+  for (auto it = route_table.g.begin(); it != route_table.g.end(); ++it) {
+    assert(cost.count(it->first) == 0);
+    //assert(visited.count(it->first) == 0);
+    assert(parent.count(it->first) == 0);
+    cost[it->first] = std::numeric_limits<double>::infinity();
+    visited[number] = false;
+    parent[it->first] = std::numeric_limits<unsigned>::max();
+  }
+  
+  // Initial value
+  assert(cost.count(number) == 1);
+  assert(visited.count(number) == 1);
+  cost[number] = 0;
+  visited[number] = true;
+  for (auto it = route_table.g[number].begin(); 
+       it != route_table.g[number].end(); ++it) {
+    assert(cost.count(it->first) == 1);
+    assert(route_table.g[number].count(it->first) == 1);
+    //cost[it->first] = route_table.g[number][it->first].lat;
+    cost[it->first] = route_table.g.at(number).at(it->first).lat;
+    parent[it->first] = number;
+  }
+
+  // Loop
+  while (counter != 0) {
+  //while (true) {
+    pair<unsigned, double> min{std::numeric_limits<unsigned>::max(),
+                               std::numeric_limits<double>::infinity()};
+    for (auto it = cost.begin(); it != cost.end(); ++it) {
+      if (visited[it->first] == true) {
+        continue;
+      }
+      if (it->second < min.second) {
+        min.first = it->first;
+        min.second = it->second;
+      }
+    }
+    assert(min.second != numeric_limits<double>::infinity());
+    //if (min.second == numeric_limits<double>::infinity()) {
+    //  break;
+    //}
+    assert(visited.count(min.first) && visited[min.first] == false);
+    visited[min.first] = true;
+    for (auto it = route_table.g[min.first].begin();
+         it != route_table.g[min.first].end(); ++it) {
+      if (visited[it->first] == true) {
+        continue;
+      }
+      if (cost[min.first] + it->second.lat < cost[it->first]) {
+        cost[it->first] = cost[min.first] + it->second.lat;
+        parent[it->first] = min.first;
+      }
+    }
+    --counter;
+
+    // update route table
+    assert(route_table.rt.count(min.first) == 0);
+    unsigned next = min.first;
+    while (parent[next] != number) {
+      next = parent[next];
+    }
+    route_table.rt[min.first] = next;
+  }
 }
 
 void Node::TimeOut()
