@@ -3,7 +3,7 @@
 #include "error.h"
 
 #if defined(DISTANCEVECTOR)
-#define MAX_NODES 16
+#define MAX_NODES 20
 #endif
 
 Node::Node(const unsigned n, SimulationContext *c, double b, double l) :
@@ -251,13 +251,13 @@ void Node::UpdateRouteTable()
     visited[number] = false;
     parent[it->first] = std::numeric_limits<unsigned>::max();
   }
-  
+
   // Initial value
   assert(cost.count(number) == 1);
   assert(visited.count(number) == 1);
   cost[number] = 0;
   visited[number] = true;
-  for (auto it = route_table.g[number].begin(); 
+  for (auto it = route_table.g[number].begin();
        it != route_table.g[number].end(); ++it) {
     assert(cost.count(it->first) == 1);
     assert(route_table.g[number].count(it->first) == 1);
@@ -355,7 +355,7 @@ void Node::LinkHasBeenUpdated(const Link *l)
     // update our table
     // send out routing mesages
     cerr << *this << ": Link Update: " << *l << '\n';
-    cerr << "before: \n" << route_table;
+    // cerr << "before: \n" << route_table;
     bool changed = route_table.update_neighbour(l->GetDest(), l->GetLatency());
     if (changed) {
         // RoutingMessage msg(number, route_table.get_my_dv());
@@ -368,7 +368,7 @@ void Node::LinkHasBeenUpdated(const Link *l)
 void Node::ProcessIncomingRoutingMessage(const RoutingMessage *m)
 {
     cerr << *this << ": RtMsg: " << *m << '\n';
-    cerr << "table before: \n" << route_table;
+    // cerr << "table before: \n" << route_table;
     bool changed = route_table.update_table_with_dv(m->src, m->dv);
     if (changed) {
         // RoutingMessage msg(number, route_table.get_my_dv());
