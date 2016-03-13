@@ -212,9 +212,9 @@ void Node::ProcessIncomingRoutingMessage(const RoutingMessage *m)
     SendToNeighbors(m);
   } else {
     //if (route_table.g[m->link.GetSrc()][m->link.GetDest()].seq == m->seq) {
-      if (route_table.g.at(m->link.GetSrc()).at(m->link.GetDest()).seq == m->seq) {
+    if (route_table.g.at(m->link.GetSrc()).at(m->link.GetDest()).seq == m->seq) {
       cout << "Discarding duplicated routing message...\n";
-    } else {
+    } else if (route_table.g.at(m->link.GetSrc()).at(m->link.GetDest()).seq == m->seq - 1) {
       cout << "Link update: " << m->link << "\n";
       //route_table.g[m->link.GetSrc()][m->link.GetDest()].lat = m->link.GetLatency();
       route_table.g.at(m->link.GetSrc()).at(m->link.GetDest()).lat = m->link.GetLatency();
@@ -226,6 +226,8 @@ void Node::ProcessIncomingRoutingMessage(const RoutingMessage *m)
       UpdateRouteTable();
       cout << route_table << "\n";
       SendToNeighbors(m);
+    } else {
+      cout << "discarding unordered routing message...\n";
     }
   }
   return;
@@ -265,8 +267,8 @@ void Node::UpdateRouteTable()
   }
 
   // Loop
-  while (counter != 0) {
-  //while (true) {
+  //while (counter != 0) {
+  while (true) {
     pair<unsigned, double> min{std::numeric_limits<unsigned>::max(),
                                std::numeric_limits<double>::infinity()};
     for (auto it = cost.begin(); it != cost.end(); ++it) {
@@ -278,10 +280,10 @@ void Node::UpdateRouteTable()
         min.second = it->second;
       }
     }
-    assert(min.second != numeric_limits<double>::infinity());
-    //if (min.second == numeric_limits<double>::infinity()) {
-    //  break;
-    //}
+    //assert(min.second != numeric_limits<double>::infinity());
+    if (min.second == numeric_limits<double>::infinity()) {
+      break;
+    }
     assert(visited.count(min.first) && visited[min.first] == false);
     visited[min.first] = true;
     for (auto it = route_table.g[min.first].begin();
