@@ -3,7 +3,7 @@
 #include "error.h"
 
 #if defined(DISTANCEVECTOR)
-#define MAX_NODES 25
+#define MAX_NODES 16
 #endif
 
 Node::Node(const unsigned n, SimulationContext *c, double b, double l) :
@@ -263,29 +263,26 @@ void Node::LinkHasBeenUpdated(const Link *l)
     // update our table
     // send out routing mesages
     cerr << *this << ": Link Update: " << *l << '\n';
-    // cerr << "dest" << l->GetDest() << " Latency: " << l->GetLatency() << ' ' << '\n';
-    // cerr << "before: \n" << route_table;
+    cerr << "before: \n" << route_table;
     bool changed = route_table.update_neighbour(l->GetDest(), l->GetLatency());
     if (changed) {
         // RoutingMessage msg(number, route_table.get_my_dv());
         SendToNeighbors(new RoutingMessage(number, route_table.get_my_dv()));
     }
-    // cerr << "after: \n" << route_table;
+    cerr << "after: \n" << route_table;
 }
 
 
 void Node::ProcessIncomingRoutingMessage(const RoutingMessage *m)
 {
     cerr << *this << ": RtMsg: " << *m << '\n';
-    // cerr << "table before: \n";
-    // cerr << route_table;
+    cerr << "table before: \n" << route_table;
     bool changed = route_table.update_table_with_dv(m->src, m->dv);
     if (changed) {
         // RoutingMessage msg(number, route_table.get_my_dv());
         SendToNeighbors(new RoutingMessage(number, route_table.get_my_dv()));
     }
-    // cerr << "table after: \n";
-    // cerr << route_table;
+    cerr << "table after: \n" << route_table;
 }
 
 void Node::TimeOut()
